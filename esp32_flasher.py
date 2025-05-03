@@ -187,30 +187,48 @@ class ESP32Flasher:
         
         # 处理新增的端口
         new_ports = current_ports - old_ports
-        if new_ports and self.auto_flash.get():
-            self.handle_new_ports(new_ports)
+        if new_ports:
+            self.log(f"检测到新端口: {new_ports}")
+            if self.auto_flash.get():
+                self.log("自动烧录已启用，开始烧录...")
+                # 添加短暂延迟，等待设备初始化
+                self.root.after(1000, lambda: self.handle_new_ports(new_ports))
+            else:
+                self.log("自动烧录未启用")
         
         # 更新端口列表
         self.refresh_ports()
 
     def handle_new_ports(self, new_ports):
         """处理新增端口"""
+        self.log(f"处理新端口: {new_ports}")
         selected_firmwares = []
-        for i in range(4):
+        
+        # 检查启用的固件
+        for i in range(8):
             if self.firmware_enables[i].get():
                 firmware = self.firmware_paths[i].get()
                 address = self.firmware_addresses[i].get()
                 if firmware and os.path.exists(firmware):
                     selected_firmwares.append((firmware, address))
+                    self.log(f"已选择固件: {firmware} 地址: {address}")
+                elif self.firmware_enables[i].get():
+                    self.log(f"警告: 固件 #{i+1} 已启用但路径无效: {firmware}")
         
-        if selected_firmwares:
-            for port in new_ports:
-                thread = threading.Thread(
-                    target=self.flash_process_multi,
-                    args=(port, selected_firmwares),
-                    daemon=True
-                )
-                thread.start()
+        if not selected_firmwares:
+            self.log("错误: 没有选择有效的固件，无法执行自动烧录")
+            return
+        
+        self.log(f"开始为 {len(new_ports)} 个端口烧录 {len(selected_firmwares)} 个固件")
+        
+        # 为每个端口创建烧录线程
+        for port in new_ports:
+            thread = threading.Thread(
+                target=self.flash_process_multi,
+                args=(port, selected_firmwares),
+                daemon=True
+            )
+            thread.start()
 
     def create_ui(self):
         # 创建主框架，添加内边距
@@ -340,7 +358,8 @@ class ESP32Flasher:
         self.auto_flash_check = ttk.Checkbutton(
             self.address_frame, 
             text="自动烧录", 
-            variable=self.auto_flash
+            variable=self.auto_flash,
+            command=lambda: self.save_config()
         )
         self.auto_flash_check.pack(side="left", padx=15)  # 增加水平间距
         
@@ -435,18 +454,23 @@ class ESP32Flasher:
                         for i, enabled in enumerate(self.config['firmware_enables']):
                             if i < len(self.firmware_enables):
                                 self.firmware_enables[i].set(enabled)
+                    # 加载自动烧录设置
+                    if 'auto_flash' in self.config:
+                        self.auto_flash.set(self.config['auto_flash'])
             else:
                 self.config = {
                     'firmware_paths': [''] * 8,  # 修改为8个
                     'firmware_addresses': ['0x0'] * 8,  # 修改为8个
-                    'firmware_enables': [False] * 8  # 修改为8个
+                    'firmware_enables': [False] * 8,  # 修改为8个
+                    'auto_flash': False
                 }
         except Exception as e:
             self.log(f"加载配置失败: {str(e)}")
             self.config = {
                 'firmware_paths': [''] * 8,  # 修改为8个
                 'firmware_addresses': ['0x0'] * 8,  # 修改为8个
-                'firmware_enables': [False] * 8  # 修改为8个
+                'firmware_enables': [False] * 8,  # 修改为8个
+                'auto_flash': False  # 默认不自动烧录
             }
 
     def save_config(self):
@@ -454,6 +478,7 @@ class ESP32Flasher:
             self.config['firmware_paths'] = [path.get() for path in self.firmware_paths]
             self.config['firmware_addresses'] = [addr.get() for addr in self.firmware_addresses]
             self.config['firmware_enables'] = [enable.get() for enable in self.firmware_enables]
+            self.config['auto_flash'] = self.auto_flash.get()  # 保存自动烧录设置
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f)
         except Exception as e:
@@ -503,7 +528,13 @@ class ESP32Flasher:
         # 创建新的日志窗口
         log_window = LogWindow(port)
         self.log_windows[port] = log_window
+        # 确保日志窗口显示在前台
+        log_window.window.lift()
+        log_window.window.focus_force()
         
+        # 记录开始信息
+        log_window.log(f"开始为端口 {port} 烧录固件...")
+        self.log(f"开始为端口 {port} 烧录固件...")
         try:
             # 创建输出重定向类
             class ThreadSafeOutput:
@@ -511,8 +542,9 @@ class ESP32Flasher:
                     self._log_window = log_window
                 
                 def write(self, text):
-                    if text.strip():
-                        self._log_window.log(text.strip())
+                    if text and text.strip():
+                        # 使用after方法确保在主线程中更新UI
+                        self._log_window.window.after(0, lambda: self._log_window.log(text.strip()))
                 
                 def flush(self):
                     pass
@@ -665,7 +697,7 @@ class ESP32Flasher:
             if new_ports and self.auto_flash.get():
                 # 获取选中的固件和地址
                 selected_firmwares = []
-                for i in range(4):
+                for i in range(8):
                     if self.firmware_enables[i].get():
                         firmware = self.firmware_paths[i].get()
                         address = self.firmware_addresses[i].get()
