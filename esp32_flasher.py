@@ -136,6 +136,7 @@ class ESP32Flasher:
         # 初始化基本变量
         self.log_windows = {}
         self.config = {'firmware_paths': [''] * 8, 'firmware_addresses': ['0x0'] * 8}  # 修改为8个
+        self.port_enables = []  # 添加串口启用状态列表
         
         # 创建UI
         self.create_ui()
@@ -219,10 +220,23 @@ class ESP32Flasher:
             self.log("错误: 没有选择有效的固件，无法执行自动烧录")
             return
         
-        self.log(f"开始为 {len(new_ports)} 个端口烧录 {len(selected_firmwares)} 个固件")
-        
-        # 为每个端口创建烧录线程
+        # 过滤出启用的端口
+        enabled_ports = []
         for port in new_ports:
+            # 查找端口在comboboxes中的索引
+            for i, cb in enumerate(self.port_comboboxes):
+                if cb.get() == port and self.port_enables[i].get():
+                    enabled_ports.append(port)
+                    break
+        
+        if not enabled_ports:
+            self.log("没有启用的端口可用于自动烧录")
+            return
+        
+        self.log(f"开始为 {len(enabled_ports)} 个启用的端口烧录 {len(selected_firmwares)} 个固件")
+        
+        # 为每个启用的端口创建烧录线程
+        for port in enabled_ports:
             thread = threading.Thread(
                 target=self.flash_process_multi,
                 args=(port, selected_firmwares),
@@ -254,7 +268,15 @@ class ESP32Flasher:
         for i in range(4):
             frame = ttk.Frame(port_left_frame)
             frame.pack(fill="x", pady=4)  # 增加垂直间距
-            
+             # 添加启用复选框
+            enable_var = tk.BooleanVar(value=True)  # 默认启用
+            enable_check = ttk.Checkbutton(
+                frame, 
+                variable=enable_var,
+                command=lambda: self.save_config()
+            )
+            enable_check.pack(side="left")
+            self.port_enables.append(enable_var)
             label = ttk.Label(frame, text=f"串口{i+1}:")
             label.pack(side="left")
             self.port_labels.append(label)
@@ -268,6 +290,15 @@ class ESP32Flasher:
             frame = ttk.Frame(port_right_frame)
             frame.pack(fill="x", pady=4)  # 增加垂直间距
             
+            # 添加启用复选框
+            enable_var = tk.BooleanVar(value=True)  # 默认启用
+            enable_check = ttk.Checkbutton(
+                frame, 
+                variable=enable_var,
+                command=lambda: self.save_config()
+            )
+            enable_check.pack(side="left")
+            self.port_enables.append(enable_var)
             label = ttk.Label(frame, text=f"串口{i+1}:")
             label.pack(side="left")
             self.port_labels.append(label)
@@ -454,6 +485,11 @@ class ESP32Flasher:
                         for i, enabled in enumerate(self.config['firmware_enables']):
                             if i < len(self.firmware_enables):
                                 self.firmware_enables[i].set(enabled)
+                    # 加载串口启用状态
+                    if 'port_enables' in self.config:
+                        for i, enabled in enumerate(self.config['port_enables']):
+                            if i < len(self.port_enables):
+                                self.port_enables[i].set(enabled)
                     # 加载自动烧录设置
                     if 'auto_flash' in self.config:
                         self.auto_flash.set(self.config['auto_flash'])
@@ -462,6 +498,7 @@ class ESP32Flasher:
                     'firmware_paths': [''] * 8,  # 修改为8个
                     'firmware_addresses': ['0x0'] * 8,  # 修改为8个
                     'firmware_enables': [False] * 8,  # 修改为8个
+                    'port_enables': [True] * 8,  # 添加串口启用状态，默认全部启用
                     'auto_flash': False
                 }
         except Exception as e:
@@ -470,6 +507,7 @@ class ESP32Flasher:
                 'firmware_paths': [''] * 8,  # 修改为8个
                 'firmware_addresses': ['0x0'] * 8,  # 修改为8个
                 'firmware_enables': [False] * 8,  # 修改为8个
+                'port_enables': [True] * 8,  # 添加串口启用状态，默认全部启用
                 'auto_flash': False  # 默认不自动烧录
             }
 
@@ -478,6 +516,7 @@ class ESP32Flasher:
             self.config['firmware_paths'] = [path.get() for path in self.firmware_paths]
             self.config['firmware_addresses'] = [addr.get() for addr in self.firmware_addresses]
             self.config['firmware_enables'] = [enable.get() for enable in self.firmware_enables]
+            self.config['port_enables'] = [enable.get() for enable in self.port_enables]  # 保存串口启用状态
             self.config['auto_flash'] = self.auto_flash.get()  # 保存自动烧录设置
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f)
@@ -497,9 +536,14 @@ class ESP32Flasher:
             self.save_config()
 
     def start_flash(self):
-        selected_ports = [cb.get() for cb in self.port_comboboxes if cb.get()]
+    # 获取启用的串口
+        selected_ports = []
+        for i, cb in enumerate(self.port_comboboxes):
+            if cb.get() and self.port_enables[i].get():  # 只选择启用的串口
+                selected_ports.append(cb.get())
+        
         if not selected_ports:
-            self.log("错误: 请选择至少一个串口")
+            self.log("错误: 请选择并启用至少一个串口")
             return
         
         # 获取选中的固件和地址
