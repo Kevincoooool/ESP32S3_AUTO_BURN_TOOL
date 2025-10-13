@@ -1,0 +1,40 @@
+{
+  "firmware_paths": [
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "firmware_addresses": [
+    "0x0",
+    "0x8000",
+    "0xe000",
+    "0x10000",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0"
+  ],
+  "firmware_enables": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "port_enables": [
+    true,
+    true,
+    true
+  ],
+  "auto_mode": true,
+  "auto_flash": false,
+  "auto_read_mac": true
+}
