@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox, filedialog
 import serial.tools.list_ports
 import threading
 import time
@@ -161,7 +161,7 @@ class ESP32MACReader:
             import subprocess
             return True
         except ImportError as e:
-            tk.messagebox.showerror("依赖错误", f"缺少必要的依赖: {str(e)}\n请安装所需的依赖后重试。")
+            messagebox.showerror("依赖错误", f"缺少必要的依赖: {str(e)}\n请安装所需的依赖后重试。")
             return False
 
     def delayed_init(self):
@@ -331,34 +331,69 @@ class ESP32MACReader:
         self.settings_frame = ttk.LabelFrame(main_frame, text="读取设置", padding=10)
         self.settings_frame.pack(fill="x", pady=8)  # 增加垂直间距
         
+        # 第一行：自动读取和波特率
+        settings_row1 = ttk.Frame(self.settings_frame)
+        settings_row1.pack(fill="x", pady=2)
+        
         # 自动读取选项
         self.auto_read = tk.BooleanVar(value=True)  # 默认启用自动读取
         self.auto_read_check = ttk.Checkbutton(
-            self.settings_frame, 
+            settings_row1, 
             text="自动读取MAC地址", 
             variable=self.auto_read,
             command=lambda: self.save_config()
         )
-        self.auto_read_check.pack(side="left", padx=15)  # 增加水平间距
+        self.auto_read_check.pack(side="left", padx=15)
         
-        # 当前日志文件显示
-        self.log_file_frame = ttk.Frame(self.settings_frame)
-        self.log_file_frame.pack(side="right", fill="x", expand=True)
+        # 波特率选择
+        baud_label = ttk.Label(settings_row1, text="波特率:")
+        baud_label.pack(side="left", padx=5)
         
-        self.log_file_label = ttk.Label(self.log_file_frame, text="当前日志文件:")
+        self.baud_rates = ['115200', '230400', '460800', '921600', '1500000']
+        self.baud_combobox = ttk.Combobox(settings_row1, width=10, values=self.baud_rates, state='readonly')
+        self.baud_combobox.set('115200')  # 默认值
+        self.baud_combobox.bind('<<ComboboxSelected>>', lambda e: self.save_config())
+        self.baud_combobox.pack(side="left", padx=5)
+        
+        # 第二行：日志文件显示
+        settings_row2 = ttk.Frame(self.settings_frame)
+        settings_row2.pack(fill="x", pady=2)
+        
+        self.log_file_label = ttk.Label(settings_row2, text="当前日志:")
         self.log_file_label.pack(side="left", padx=5)
         
-        self.log_file_path = ttk.Label(self.log_file_frame, text=self.current_log_file)
+        self.log_file_path = ttk.Label(settings_row2, text=self.current_log_file)
         self.log_file_path.pack(side="left", padx=5)
         
-        # 读取按钮，使用强调样式
+        # 按钮区域
+        button_frame = ttk.Frame(main_frame)
+        button_frame.pack(pady=12)
+        
+        # 读取按钮
         self.read_button = ttk.Button(
-            main_frame, 
+            button_frame, 
             text="开始读取MAC地址", 
             command=self.start_read,
             style='Accent.TButton'
         )
-        self.read_button.pack(pady=12)  # 增加垂直间距
+        self.read_button.pack(side="left", padx=5)
+        
+        # 导出按钮
+        self.export_button = ttk.Button(
+            button_frame, 
+            text="导出列表", 
+            command=self.export_mac_list,
+            style='Accent.TButton'
+        )
+        self.export_button.pack(side="left", padx=5)
+        
+        # 清空列表按钮
+        self.clear_list_button = ttk.Button(
+            button_frame, 
+            text="清空列表", 
+            command=self.clear_mac_list
+        )
+        self.clear_list_button.pack(side="left", padx=5)
         
         # MAC地址显示区域
         self.mac_frame = ttk.LabelFrame(main_frame, text="MAC地址列表", padding=10)
@@ -453,24 +488,30 @@ class ESP32MACReader:
                     # 加载自动读取设置
                     if 'auto_read' in self.config:
                         self.auto_read.set(self.config['auto_read'])
+                    # 加载波特率设置
+                    if 'baudrate' in self.config:
+                        self.baud_combobox.set(str(self.config['baudrate']))
             else:
                 self.config = {
-                    'port_enables': [True] * 8,  # 默认全部启用
-                    'auto_read': True  # 默认启用自动读取
+                    'port_enables': [True] * 8,
+                    'auto_read': True,
+                    'baudrate': 115200
                 }
         except Exception as e:
             self.log(f"加载配置失败: {str(e)}")
             self.config = {
-                'port_enables': [True] * 8,  # 默认全部启用
-                'auto_read': True  # 默认启用自动读取
+                'port_enables': [True] * 8,
+                'auto_read': True,
+                'baudrate': 115200
             }
 
     def save_config(self):
         try:
             self.config['port_enables'] = [enable.get() for enable in self.port_enables]
             self.config['auto_read'] = self.auto_read.get()
+            self.config['baudrate'] = int(self.baud_combobox.get())
             with open(self.config_file, 'w', encoding='utf-8') as f:
-                json.dump(self.config, f)
+                json.dump(self.config, f, indent=2)
         except Exception as e:
             self.log(f"保存配置失败: {str(e)}")
 
@@ -507,12 +548,15 @@ class ESP32MACReader:
         self.log(f"开始从端口 {port} 读取MAC地址...")
         
         try:
+            # 获取波特率
+            baudrate = self.baud_combobox.get()
+            
             # 检测芯片类型
-            log_window.log(f"检测芯片类型...")
+            log_window.log(f"检测芯片类型 (波特率: {baudrate})...")
             
             # 使用子进程执行芯片检测
             import subprocess
-            cmd = ["python", "-m", "esptool", "--port", port, "chip_id"]
+            cmd = ["python", "-m", "esptool", "--port", port, "--baud", baudrate, "chip_id"]
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -553,7 +597,7 @@ class ESP32MACReader:
             
             # 读取MAC地址
             log_window.log("读取MAC地址...")
-            cmd = ["python", "-m", "esptool", "--port", port, "read_mac"]
+            cmd = ["python", "-m", "esptool", "--port", port, "--baud", baudrate, "read_mac"]
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -581,25 +625,30 @@ class ESP32MACReader:
             if not mac_address:
                 log_window.log("未能读取MAC地址")
                 return
-            # 检查MAC地址是否已存在
-            if os.path.exists(self.current_log_file):
-                with open(self.current_log_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if mac_address in line:
-                            log_window.log(f"MAC地址 {mac_address} 已存在，跳过记录")
-                            self.log(f"MAC地址 {mac_address} 已存在，跳过记录")
-                            # 延迟2秒后关闭窗口
-                            self.root.after(2000, lambda: self.close_log_window(port))
-                            return
-        
+            
             # 记录时间
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             
-            # 更新MAC地址列表
+            # 检查MAC地址是否已在内存列表中
+            is_duplicate = False
+            for item_id in self.mac_list.get_children():
+                item_values = self.mac_list.item(item_id)['values']
+                if len(item_values) > 1 and item_values[1] == mac_address:
+                    is_duplicate = True
+                    break
+            
+            if is_duplicate:
+                log_window.log(f"MAC地址 {mac_address} 已存在，跳过记录")
+                self.log(f"MAC地址 {mac_address} 已存在，跳过记录")
+                # 延迟2秒后关闭窗口
+                self.root.after(2000, lambda: self.close_log_window(port))
+                return
+            
+            # 更新MAC地址列表（在主线程中）
             self.root.after(0, lambda: self.update_mac_list(port, mac_address, chip_type, timestamp))
             
             # 保存到文件
-            self.save_mac_to_file(port, mac_address, chip_type, timestamp)
+            self.save_mac_to_file(mac_address, chip_type, timestamp)
             
             log_window.log(f"成功读取MAC地址: {mac_address}")
             self.log(f"端口 {port} 成功读取MAC地址: {mac_address}")
@@ -612,32 +661,111 @@ class ESP32MACReader:
             self.log(error_msg)
 
     def update_mac_list(self, port, mac_address, chip_type, timestamp):
-        # 将MAC地址添加到列表中
-        self.mac_list.insert("", "end", values=(port, mac_address, chip_type, timestamp))
-        # 保存到内存中
-        self.mac_addresses[port] = {
-            "mac": mac_address,
-            "chip_type": chip_type,
-            "timestamp": timestamp
-        }
-
-    def save_mac_to_file(self, port, mac_address, chip_type, timestamp):
+        """在主线程中更新MAC地址列表"""
         try:
-            # 检查文件是否存在
-            if os.path.exists(self.current_log_file):
-                # 读取现有文件内容，检查MAC地址是否已存在
-                with open(self.current_log_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if mac_address in line:
-                            self.log(f"MAC地址 {mac_address} 已存在，跳过保存")
-                            return
+            # 将MAC地址添加到列表中
+            self.mac_list.insert("", "end", values=(port, mac_address, chip_type, timestamp))
+            # 保存到内存中
+            self.mac_addresses[mac_address] = {
+                "port": port,
+                "chip_type": chip_type,
+                "timestamp": timestamp
+            }
+            # 滚动到最后一行
+            children = self.mac_list.get_children()
+            if children:
+                self.mac_list.see(children[-1])
+        except Exception as e:
+            self.log(f"更新MAC列表失败: {str(e)}")
+
+    def save_mac_to_file(self, mac_address, chip_type, timestamp):
+        """保存MAC地址到文件"""
+        try:
+            # 准备要写入的内容
+            content = f"{timestamp}\t{chip_type}\t{mac_address}\n"
             
-            # MAC地址不存在，追加保存
+            # 追加保存到文件
             with open(self.current_log_file, 'a', encoding='utf-8') as f:
-                f.write(f"{timestamp}\t{port}\t{chip_type}\t{mac_address}\n")
-                self.log(f"MAC地址 {mac_address} 已保存到文件")
+                f.write(content)
+            
+            self.log(f"MAC地址 {mac_address} 已保存到文件 {self.current_log_file}")
         except Exception as e:
             self.log(f"保存MAC地址到文件失败: {str(e)}")
+    
+    def export_mac_list(self):
+        """导出MAC地址列表"""
+        try:
+            # 检查是否有数据
+            if not self.mac_list.get_children():
+                messagebox.showwarning("提示", "当前列表为空，没有数据可导出！")
+                return
+            
+            # 选择保存位置
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("文本文件", "*.txt"), ("CSV文件", "*.csv"), ("所有文件", "*.*")],
+                initialfile=f"MAC_Export_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+            )
+            
+            if not filename:
+                return
+            
+            # 导出数据
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write("=== ESP32 MAC地址列表 ===\n")
+                f.write(f"导出时间: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+                f.write(f"总数量: {len(self.mac_list.get_children())}\n\n")
+                
+                # 写入表头
+                if filename.endswith('.csv'):
+                    f.write("序号,端口,MAC地址,芯片类型,时间\n")
+                else:
+                    f.write(f"{'序号':<6}{'端口':<10}{'MAC地址':<20}{'芯片类型':<12}{'时间':<20}\n")
+                    f.write("-" * 80 + "\n")
+                
+                # 写入数据
+                for i, item_id in enumerate(self.mac_list.get_children(), 1):
+                    values = self.mac_list.item(item_id)['values']
+                    port, mac, chip, time_str = values
+                    
+                    if filename.endswith('.csv'):
+                        f.write(f"{i},{port},{mac},{chip},{time_str}\n")
+                    else:
+                        f.write(f"{i:<6}{port:<10}{mac:<20}{chip:<12}{time_str:<20}\n")
+            
+            messagebox.showinfo("导出成功", f"MAC地址列表已导出到:\n{filename}")
+            self.log(f"MAC地址列表已导出到: {filename}")
+            
+        except Exception as e:
+            messagebox.showerror("导出失败", f"导出MAC地址列表失败:\n{str(e)}")
+            self.log(f"导出MAC地址列表失败: {str(e)}")
+    
+    def clear_mac_list(self):
+        """清空MAC地址列表"""
+        try:
+            if not self.mac_list.get_children():
+                messagebox.showinfo("提示", "列表已经是空的了！")
+                return
+            
+            # 确认清空
+            result = messagebox.askyesno(
+                "确认清空",
+                f"当前列表有 {len(self.mac_list.get_children())} 条记录\n确定要清空吗？\n\n注意：已保存到文件的数据不会被删除"
+            )
+            
+            if result:
+                # 清空树形列表
+                for item in self.mac_list.get_children():
+                    self.mac_list.delete(item)
+                
+                # 清空内存数据
+                self.mac_addresses.clear()
+                
+                self.log("MAC地址列表已清空")
+                messagebox.showinfo("完成", "MAC地址列表已清空！")
+        except Exception as e:
+            messagebox.showerror("错误", f"清空列表失败:\n{str(e)}")
+            self.log(f"清空列表失败: {str(e)}")
 
     def log(self, message):
         self.log_text.insert("end", message + "\n")
