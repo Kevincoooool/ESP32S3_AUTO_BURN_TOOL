@@ -1,13 +1,37 @@
 import tkinter as tk
 from tkinter import filedialog, ttk, messagebox
-import serial.tools.list_ports
 import threading
 import time
 import json
 import os
 import locale
 import subprocess
-font_size = 12
+
+# 导入serial模块
+try:
+    import serial
+    from serial.tools import list_ports
+except ImportError:
+    import serial
+    import serial.tools.list_ports
+    list_ports = serial.tools.list_ports
+
+font_size = 11
+
+# 现代化配色方案
+COLORS = {
+    'primary': '#2563eb',      # 蓝色
+    'primary_hover': '#1d4ed8',
+    'success': '#10b981',      # 绿色
+    'danger': '#ef4444',       # 红色
+    'warning': '#f59e0b',      # 橙色
+    'bg_main': '#f8fafc',      # 主背景
+    'bg_secondary': '#ffffff', # 次背景
+    'border': '#e2e8f0',       # 边框
+    'text_primary': '#1e293b', # 主文字
+    'text_secondary': '#64748b' # 次文字
+}
+
 # 添加自定义样式和主题
 def set_modern_style(root):
     # 创建自定义样式
@@ -22,28 +46,54 @@ def set_modern_style(root):
         except:
             pass  # 如果没有可用的主题，使用默认主题
     
-    # 自定义按钮样式
-    style.configure('TButton', font=('Microsoft YaHei UI', font_size))
-    style.configure('Accent.TButton', font=('Microsoft YaHei UI', font_size))
+    # 自定义按钮样式 - 现代化设计
+    style.configure('TButton', 
+        font=('Microsoft YaHei UI', font_size),
+        padding=(15, 8)
+    )
+    
+    # 强调按钮样式 - 蓝色主题
+    style.configure('Accent.TButton', 
+        font=('Microsoft YaHei UI', font_size, 'bold'),
+        padding=(15, 10)
+    )
     
     # 自定义标签框样式
-    style.configure('TLabelframe', font=('Microsoft YaHei UI', font_size))
-    style.configure('TLabelframe.Label', font=('Microsoft YaHei UI', font_size, 'bold'))
+    style.configure('TLabelframe', 
+        font=('Microsoft YaHei UI', font_size)
+    )
+    style.configure('TLabelframe.Label', 
+        font=('Microsoft YaHei UI', font_size, 'bold'),
+        foreground=COLORS['text_primary']
+    )
     
     # 自定义标签样式
-    style.configure('TLabel', font=('Microsoft YaHei UI', font_size))
+    style.configure('TLabel', 
+        font=('Microsoft YaHei UI', font_size),
+        foreground=COLORS['text_primary']
+    )
     
     # 自定义输入框样式
-    style.configure('TEntry', font=('Microsoft YaHei UI', font_size))
+    style.configure('TEntry', 
+        font=('Microsoft YaHei UI', font_size)
+    )
     
     # 自定义下拉框样式
-    style.configure('TCombobox', font=('Microsoft YaHei UI', font_size))
+    style.configure('TCombobox', 
+        font=('Microsoft YaHei UI', font_size)
+    )
     
     # 自定义复选框样式
-    style.configure('TCheckbutton', font=('Microsoft YaHei UI', font_size))
+    style.configure('TCheckbutton', 
+        font=('Microsoft YaHei UI', font_size),
+        foreground=COLORS['text_primary']
+    )
     
     # 设置窗口默认字体
     root.option_add('*Font', ('Microsoft YaHei UI', font_size))
+    
+    # 设置窗口背景色
+    root.configure(bg=COLORS['bg_main'])
     
     # 设置窗口DPI感知
     try:
@@ -67,7 +117,8 @@ class LogWindow:
     def __init__(self, port):
         self.window = tk.Toplevel()
         self.window.title(f"端口 {port} 烧录日志")
-        self.window.geometry("600x450")  # 调整窗口大小
+        self.window.geometry("700x500")  # 调整窗口大小
+        self.window.configure(bg=COLORS['bg_main'])
         
         # 设置窗口图标
         try:
@@ -75,30 +126,54 @@ class LogWindow:
         except:
             pass
         
+        # 创建主容器
+        container = ttk.Frame(self.window, padding=10)
+        container.pack(fill="both", expand=True)
+        
         # 创建日志工具栏
-        log_toolbar = ttk.Frame(self.window)
-        log_toolbar.pack(fill="x", pady=(5, 5))
+        log_toolbar = ttk.Frame(container)
+        log_toolbar.pack(fill="x", pady=(0, 10))
+        
+        # 工具栏标题
+        toolbar_label = ttk.Label(
+            log_toolbar, 
+            text=f"端口: {port}",
+            font=('Microsoft YaHei UI', font_size, 'bold')
+        )
+        toolbar_label.pack(side="left")
         
         # 添加清除日志按钮
-        clear_button = ttk.Button(log_toolbar, text="清除日志", command=self.clear_log, style='Accent.TButton')
+        clear_button = ttk.Button(
+            log_toolbar, 
+            text="清除日志", 
+            command=self.clear_log, 
+            style='TButton'
+        )
         clear_button.pack(side="right", padx=5)
         
+        # 创建日志文本框架
+        log_frame = ttk.Frame(container)
+        log_frame.pack(fill="both", expand=True)
+        
         # 创建滚动条和文本框
-        scrollbar = ttk.Scrollbar(self.window)
+        scrollbar = ttk.Scrollbar(log_frame)
         scrollbar.pack(side="right", fill="y")
         
         # 使用自定义字体和颜色
         self.log_text = tk.Text(
-            self.window, 
-            height=font_size, 
+            log_frame, 
+            height=20, 
             yscrollcommand=scrollbar.set,
-            font=('Consolas', font_size),
-            background='#f9f9f9',
-            foreground='#333333',
+            font=('Consolas', 10),
+            background=COLORS['bg_secondary'],
+            foreground=COLORS['text_primary'],
             borderwidth=1,
-            relief="solid"
+            relief="solid",
+            padx=10,
+            pady=10,
+            wrap=tk.WORD
         )
-        self.log_text.pack(fill="both", expand=True, padx=5, pady=5)
+        self.log_text.pack(side="left", fill="both", expand=True)
         
         scrollbar.config(command=self.log_text.yview)
         
@@ -116,8 +191,8 @@ class ESP32Flasher:
     def __init__(self, root):
         self.root = root
         self.config_file = 'config.json'
-        self.root.title("ESP32烧录工具")
-        self.root.geometry("700x900")  # 调整主窗口大小
+        self.root.title("ESP32 烧录工具 - 现代化版")
+        self.root.geometry("1200x900")  # 调整为宽屏布局，包含统计面板
         
         # 检查并安装必要的依赖
         if not self.check_dependencies():
@@ -139,6 +214,12 @@ class ESP32Flasher:
         self.config = {'firmware_paths': [''] * 8, 'firmware_addresses': ['0x0'] * 8}  # 修改为8个
         self.port_enables = []  # 添加串口启用状态列表
         
+        # 烧录统计数据
+        self.flash_records = []  # 烧录记录列表
+        self.flash_success_count = 0  # 成功次数
+        self.flash_fail_count = 0  # 失败次数
+        self.flash_total_count = 0  # 总次数
+        
         # 创建UI
         self.create_ui()
         
@@ -154,8 +235,10 @@ class ESP32Flasher:
         self.refresh_ports()
         
         # 启动串口监控
+        self.log("🔍 正在启动串口监控线程...")
         self.port_monitor_thread = threading.Thread(target=self.monitor_ports, daemon=True)
         self.port_monitor_thread.start()
+        self.log("✅ 串口监控线程已启动，等待设备插入...")
         
         # 重定向标准输出到日志框
         import sys
@@ -167,16 +250,23 @@ class ESP32Flasher:
         old_ports = set()
         while True:
             try:
-                current_ports = set(port.device for port in serial.tools.list_ports.comports())
+                current_ports = set(port.device for port in list_ports.comports())
                 
                 if current_ports != old_ports:
-                    # 使用一个函数处理所有端口变化
-                    self.root.after(0, lambda: self.handle_port_changes(old_ports, current_ports))
+                    # 创建副本并使用默认参数捕获值，避免引用问题
+                    old_ports_copy = old_ports.copy()
+                    current_ports_copy = current_ports.copy()
+                    self.root.after(0, lambda o=old_ports_copy, c=current_ports_copy: self.handle_port_changes(o, c))
                     old_ports = current_ports
                 
                 # 增加睡眠时间，减少CPU使用
                 time.sleep(1.5)
-            except Exception:
+            except Exception as e:
+                # 记录异常，帮助调试
+                try:
+                    self.log(f"[错误] 端口监控异常: {str(e)}")
+                except:
+                    pass
                 time.sleep(1.5)
                 continue
 
@@ -190,109 +280,180 @@ class ESP32Flasher:
         # 处理新增的端口
         new_ports = current_ports - old_ports
         if new_ports:
-            self.log(f"检测到新端口: {new_ports}")
+            self.log(f"[调试] 检测到新端口: {list(new_ports)}")
+            self.log(f"[调试] 自动烧录状态: {self.auto_flash.get()}")
+            
             if self.auto_flash.get():
-                self.log("自动烧录已启用，开始烧录...")
+                self.log("✅ 自动烧录已启用，准备开始烧录...")
+                # 转换为列表并创建副本，避免引用问题
+                new_ports_list = list(new_ports)
+                self.log(f"[调试] 将在1秒后处理端口: {new_ports_list}")
                 # 添加短暂延迟，等待设备初始化
-                self.root.after(1000, lambda: self.handle_new_ports(new_ports))
+                self.root.after(1000, lambda ports=new_ports_list: self.handle_new_ports(ports))
             else:
-                self.log("自动烧录未启用")
+                self.log("⚠️ 自动烧录未启用，请勾选'自动烧录'选项")
         
         # 更新端口列表
         self.refresh_ports()
 
     def handle_new_ports(self, new_ports):
         """处理新增端口"""
-        self.log(f"处理新端口: {new_ports}")
+        self.log(f"[调试] ▶ 开始处理新端口: {new_ports}")
         selected_firmwares = []
         
         # 检查启用的固件
+        self.log(f"[调试] 检查固件启用状态...")
+        enabled_count = 0
         for i in range(8):
             if self.firmware_enables[i].get():
+                enabled_count += 1
                 firmware = self.firmware_paths[i].get()
                 address = self.firmware_addresses[i].get()
+                self.log(f"[调试] 固件 #{i+1} 已启用: {firmware}")
                 if firmware and os.path.exists(firmware):
                     selected_firmwares.append((firmware, address))
-                    self.log(f"已选择固件: {firmware} 地址: {address}")
-                elif self.firmware_enables[i].get():
-                    self.log(f"警告: 固件 #{i+1} 已启用但路径无效: {firmware}")
+                    self.log(f"✅ 已选择固件 #{i+1}: {os.path.basename(firmware)} 地址: {address}")
+                else:
+                    self.log(f"⚠️ 警告: 固件 #{i+1} 已启用但路径无效: {firmware}")
+        
+        self.log(f"[调试] 共有 {enabled_count} 个固件被启用，{len(selected_firmwares)} 个有效")
         
         if not selected_firmwares:
-            self.log("错误: 没有选择有效的固件，无法执行自动烧录")
+            self.log("❌ 错误: 没有选择有效的固件，无法执行自动烧录")
+            self.log("💡 提示: 请勾选至少一个固件前的复选框，并确保固件路径有效")
             return
         
-        # 过滤出启用的端口
-        enabled_ports = []
-        for port in new_ports:
-            # 查找端口在comboboxes中的索引
-            for i, cb in enumerate(self.port_comboboxes):
-                if cb.get() == port and self.port_enables[i].get():
-                    enabled_ports.append(port)
-                    break
+        # 对于自动烧录，直接使用所有新插入的端口
+        # 不需要检查 combobox 的启用状态（那是手动烧录才需要的）
+        enabled_ports = list(new_ports)
         
         if not enabled_ports:
-            self.log("没有启用的端口可用于自动烧录")
+            self.log("❌ 没有新端口可用于自动烧录")
             return
         
-        self.log(f"开始为 {len(enabled_ports)} 个启用的端口烧录 {len(selected_firmwares)} 个固件")
+        self.log(f"🚀 开始为 {len(enabled_ports)} 个新端口烧录 {len(selected_firmwares)} 个固件")
         
-        # 为每个启用的端口创建烧录线程
+        # 为每个新端口创建烧录线程
         for port in enabled_ports:
+            self.log(f"[调试] 启动烧录线程: {port}")
             thread = threading.Thread(
                 target=self.flash_process_multi,
                 args=(port, selected_firmwares),
                 daemon=True
             )
             thread.start()
+            self.log(f"✅ 烧录线程已启动: {port}")
 
     def create_ui(self):
         # 创建主框架，添加内边距
-        main_frame = ttk.Frame(self.root, padding=10)
+        main_frame = ttk.Frame(self.root, padding=15)
         main_frame.pack(fill="both", expand=True)
         
-        # 串口选择
-        self.port_frame = ttk.LabelFrame(main_frame, text="串口设置", padding=10)
-        self.port_frame.pack(fill="x", pady=5)
+        # 添加标题栏
+        title_frame = ttk.Frame(main_frame)
+        title_frame.pack(fill="x", pady=(0, 15))
         
-        # 创建左右布局框架
-        port_left_frame = ttk.Frame(self.port_frame)
-        port_left_frame.pack(side="left", fill="both", expand=True)
+        title_label = ttk.Label(
+            title_frame,
+            text="ESP32 烧录工具",
+            font=('Microsoft YaHei UI', 18, 'bold'),
+            foreground=COLORS['primary']
+        )
+        title_label.pack(side="left")
         
-        port_right_frame = ttk.Frame(self.port_frame)
-        port_right_frame.pack(side="right", fill="both", expand=True)
+        subtitle_label = ttk.Label(
+            title_frame,
+            text="支持多串口、多固件同时烧录",
+            font=('Microsoft YaHei UI', 10),
+            foreground=COLORS['text_secondary']
+        )
+        subtitle_label.pack(side="left", padx=(15, 0))
+        
+        # === 右侧：烧录统计面板 ===
+        stats_frame = ttk.LabelFrame(title_frame, text="烧录统计", padding=10)
+        stats_frame.pack(side="right")
+        
+        # 统计数据显示
+        stats_row1 = ttk.Frame(stats_frame)
+        stats_row1.pack(fill="x", pady=2)
+        
+        # 成功次数
+        ttk.Label(stats_row1, text="✅ 成功:", font=('Microsoft YaHei UI', 9)).pack(side="left", padx=(0, 5))
+        self.success_label = ttk.Label(
+            stats_row1, 
+            text="0", 
+            font=('Microsoft YaHei UI', 10, 'bold'),
+            foreground=COLORS['success']
+        )
+        self.success_label.pack(side="left", padx=(0, 15))
+        
+        # 失败次数
+        ttk.Label(stats_row1, text="❌ 失败:", font=('Microsoft YaHei UI', 9)).pack(side="left", padx=(0, 5))
+        self.fail_label = ttk.Label(
+            stats_row1, 
+            text="0", 
+            font=('Microsoft YaHei UI', 10, 'bold'),
+            foreground=COLORS['danger']
+        )
+        self.fail_label.pack(side="left", padx=(0, 15))
+        
+        # 总次数
+        ttk.Label(stats_row1, text="📊 总计:", font=('Microsoft YaHei UI', 9)).pack(side="left", padx=(0, 5))
+        self.total_label = ttk.Label(
+            stats_row1, 
+            text="0", 
+            font=('Microsoft YaHei UI', 10, 'bold'),
+            foreground=COLORS['primary']
+        )
+        self.total_label.pack(side="left")
+        
+        # 导出按钮
+        stats_row2 = ttk.Frame(stats_frame)
+        stats_row2.pack(fill="x", pady=(5, 0))
+        
+        self.export_button = ttk.Button(
+            stats_row2,
+            text="📤 导出记录",
+            command=self.export_records,
+            style='TButton'
+        )
+        self.export_button.pack(side="left", padx=(0, 5))
+        
+        self.clear_records_button = ttk.Button(
+            stats_row2,
+            text="🗑️ 清空记录",
+            command=self.clear_records,
+            style='TButton'
+        )
+        self.clear_records_button.pack(side="left")
+        
+        # 创建左右分栏的主容器
+        columns_frame = ttk.Frame(main_frame)
+        columns_frame.pack(fill="both", expand=True, pady=5)
+        
+        # 左侧容器（串口设置）
+        left_column = ttk.Frame(columns_frame)
+        left_column.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        
+        # 右侧容器（固件设置）
+        right_column = ttk.Frame(columns_frame)
+        right_column.pack(side="left", fill="both", expand=True)
+        
+        # === 左侧：串口设置 ===
+        self.port_frame = ttk.LabelFrame(left_column, text="串口设置", padding=10)
+        self.port_frame.pack(fill="both", expand=True)
         
         # 创建8个串口选择组
         self.port_comboboxes = []
         self.port_labels = []
         
-        # 创建左侧串口1-4
-        for i in range(4):
-            frame = ttk.Frame(port_left_frame)
-            frame.pack(fill="x", pady=4)  # 增加垂直间距
-             # 添加启用复选框
-            enable_var = tk.BooleanVar(value=True)  # 默认启用
-            enable_check = ttk.Checkbutton(
-                frame, 
-                variable=enable_var,
-                command=lambda: self.save_config()
-            )
-            enable_check.pack(side="left")
-            self.port_enables.append(enable_var)
-            label = ttk.Label(frame, text=f"串口{i+1}:")
-            label.pack(side="left")
-            self.port_labels.append(label)
-            
-            combobox = ttk.Combobox(frame, width=30)
-            combobox.pack(side="left", padx=5)
-            self.port_comboboxes.append(combobox)
-            
-        # 创建右侧串口5-8
-        for i in range(4, 8):
-            frame = ttk.Frame(port_right_frame)
-            frame.pack(fill="x", pady=4)  # 增加垂直间距
+        # 创建所有8个串口（垂直排列）
+        for i in range(8):
+            frame = ttk.Frame(self.port_frame)
+            frame.pack(fill="x", pady=3)
             
             # 添加启用复选框
-            enable_var = tk.BooleanVar(value=True)  # 默认启用
+            enable_var = tk.BooleanVar(value=True)
             enable_check = ttk.Checkbutton(
                 frame, 
                 variable=enable_var,
@@ -300,12 +461,15 @@ class ESP32Flasher:
             )
             enable_check.pack(side="left")
             self.port_enables.append(enable_var)
-            label = ttk.Label(frame, text=f"串口{i+1}:")
-            label.pack(side="left")
+            
+            # 串口标签
+            label = ttk.Label(frame, text=f"COM{i+1}:", width=6)
+            label.pack(side="left", padx=(0, 5))
             self.port_labels.append(label)
             
-            combobox = ttk.Combobox(frame, width=30)
-            combobox.pack(side="left", padx=5)
+            # 串口下拉框
+            combobox = ttk.Combobox(frame, width=18)
+            combobox.pack(side="left", fill="x", expand=True, padx=5)
             self.port_comboboxes.append(combobox)
         
         # 刷新按钮放在底部中间，使用强调样式
@@ -315,11 +479,11 @@ class ESP32Flasher:
             command=self.refresh_ports,
             style='Accent.TButton'
         )
-        self.refresh_button.pack(pady=8)  # 增加垂直间距
+        self.refresh_button.pack(pady=8)
         
-        # 固件选择
-        self.firmware_frame = ttk.LabelFrame(main_frame, text="固件设置", padding=10)
-        self.firmware_frame.pack(fill="x", pady=8)  # 增加垂直间距
+        # === 右侧：固件设置 ===
+        self.firmware_frame = ttk.LabelFrame(right_column, text="固件设置", padding=10)
+        self.firmware_frame.pack(fill="both", expand=True)
         
         # 创建固件选择组
         self.firmware_paths = []
@@ -328,11 +492,11 @@ class ESP32Flasher:
         self.firmware_enables = []
         
         # 修改为8个固件选择
-        for i in range(8):  # 修改循环次数为8
+        for i in range(8):
             frame = ttk.Frame(self.firmware_frame)
-            frame.pack(fill="x", pady=4)
+            frame.pack(fill="x", pady=3)
             
-            # 启用选择框，添加回调函数
+            # 启用选择框
             enable_var = tk.BooleanVar(value=False)
             enable_check = ttk.Checkbutton(
                 frame, 
@@ -342,10 +506,20 @@ class ESP32Flasher:
             enable_check.pack(side="left")
             self.firmware_enables.append(enable_var)
             
+            # 固件编号标签
+            num_label = ttk.Label(
+                frame,
+                text=f"#{i+1}",
+                font=('Microsoft YaHei UI', font_size, 'bold'),
+                foreground=COLORS['text_secondary'],
+                width=3
+            )
+            num_label.pack(side="left")
+            
             # 固件路径
             path_var = tk.StringVar()
-            entry = ttk.Entry(frame, textvariable=path_var, width=50)
-            entry.pack(side="left", padx=5)
+            entry = ttk.Entry(frame, textvariable=path_var, width=30)
+            entry.pack(side="left", fill="x", expand=True, padx=5)
             
             # 修复显示尾部的方法
             def scroll_to_end(var, entry=None):
@@ -372,9 +546,13 @@ class ESP32Flasher:
             )
             browse_btn.pack(side="left", padx=5)
         
-        # 地址设置
-        self.address_frame = ttk.LabelFrame(main_frame, text="烧录设置", padding=10)
-        self.address_frame.pack(fill="x", pady=8)  # 增加垂直间距
+        # === 底部区域：烧录设置、按钮和日志 ===
+        bottom_frame = ttk.Frame(main_frame)
+        bottom_frame.pack(fill="both", expand=True, pady=(10, 0))
+        
+        # 烧录设置
+        self.address_frame = ttk.LabelFrame(bottom_frame, text="烧录设置", padding=10)
+        self.address_frame.pack(fill="x", pady=(0, 5))
         
         # 第一行设置
         settings_row1 = ttk.Frame(self.address_frame)
@@ -408,59 +586,91 @@ class ESP32Flasher:
             variable=self.auto_flash,
             command=lambda: self.save_config()
         )
-        self.auto_flash_check.pack(side="left", padx=15)  # 增加水平间距
+        self.auto_flash_check.pack(side="left", padx=15)
         
-        # 烧录按钮，使用强调样式
+        # 烧录按钮
         self.flash_button = ttk.Button(
-            main_frame, 
+            bottom_frame, 
             text="开始烧录", 
             command=self.start_flash,
             style='Accent.TButton'
         )
-        self.flash_button.pack(pady=12)  # 增加垂直间距
+        self.flash_button.pack(pady=8)
         
         # 日志显示
-        self.log_frame = ttk.LabelFrame(main_frame, text="日志", padding=10)
-        self.log_frame.pack(fill="both", expand=True, pady=8)  # 增加垂直间距
+        self.log_frame = ttk.LabelFrame(bottom_frame, text="运行日志", padding=10)
+        self.log_frame.pack(fill="both", expand=True, pady=(0, 5))
         
         # 创建日志工具栏
         log_toolbar = ttk.Frame(self.log_frame)
-        log_toolbar.pack(fill="x", pady=(0, 5))
+        log_toolbar.pack(fill="x", pady=(0, 8))
+        
+        # 日志状态标签
+        self.log_status = ttk.Label(
+            log_toolbar,
+            text="就绪",
+            font=('Microsoft YaHei UI', font_size)
+        )
+        self.log_status.pack(side="left")
         
         # 添加清除日志按钮
         clear_button = ttk.Button(
             log_toolbar, 
             text="清除日志", 
             command=self.clear_log,
-            style='Accent.TButton'
+            style='TButton'
         )
         clear_button.pack(side="right")
         
+        # 创建日志文本框架
+        log_text_frame = ttk.Frame(self.log_frame)
+        log_text_frame.pack(fill="both", expand=True)
+        
         # 创建滚动条
-        scrollbar = ttk.Scrollbar(self.log_frame)
+        scrollbar = ttk.Scrollbar(log_text_frame)
         scrollbar.pack(side="right", fill="y")
         
         # 创建文本框并关联滚动条，使用更现代的样式
         self.log_text = tk.Text(
-            self.log_frame, 
-            height=font_size,  # 增加高度
+            log_text_frame, 
+            height=12,
             yscrollcommand=scrollbar.set,
-            font=('Consolas', font_size),  # 使用等宽字体
-            background='#f9f9f9',  # 浅灰色背景
-            foreground='#333333',  # 深灰色文字
+            font=('Consolas', 10),
+            background=COLORS['bg_secondary'],
+            foreground=COLORS['text_primary'],
             borderwidth=1,
-            relief="solid"
+            relief="solid",
+            padx=10,
+            pady=10,
+            wrap=tk.WORD
         )
         self.log_text.pack(side="left", fill="both", expand=True)
         
         # 设置滚动条的命令
         scrollbar.config(command=self.log_text.yview)
         
+        # === 最底部：状态栏 ===
+        status_frame = ttk.Frame(main_frame)
+        status_frame.pack(fill="x", pady=(0, 0))
+        
+        # 状态栏分隔线
+        separator = ttk.Separator(status_frame, orient='horizontal')
+        separator.pack(fill="x", pady=(0, 5))
+        
+        # 状态信息
+        self.status_label = ttk.Label(
+            status_frame,
+            text="版本: v1.0 | 就绪",
+            font=('Microsoft YaHei UI', 9),
+            foreground=COLORS['text_secondary']
+        )
+        self.status_label.pack(side="left", padx=5)
+        
         # 初始化串口列表
         self.refresh_ports()
 
     def refresh_ports(self):
-        ports = [port.device for port in serial.tools.list_ports.comports()]
+        ports = [port.device for port in list_ports.comports()]
         
         # 清空所有下拉框
         for combobox in self.port_comboboxes:
@@ -560,7 +770,7 @@ class ESP32Flasher:
             self.save_config()
 
     def start_flash(self):
-    # 获取启用的串口
+        # 获取启用的串口
         selected_ports = []
         for i, cb in enumerate(self.port_comboboxes):
             if cb.get() and self.port_enables[i].get():  # 只选择启用的串口
@@ -622,7 +832,7 @@ class ESP32Flasher:
             
             # 使用子进程执行芯片检测，避免输出重定向冲突
             import subprocess
-            cmd = ["python", "-m", "esptool", "--port", port, "chip_id"]
+            cmd = ["python", "-m", "esptool", "--port", port, "read_mac"]
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -640,31 +850,48 @@ class ESP32Flasher:
                 output += line
             process.wait()
             
-            # 从输出中解析芯片类型
+            # 从输出中解析芯片类型 - 改进的解析逻辑
             chip_type = None
-            if "Chip is ESP32-S3" in output:
+            output_upper = output.upper()
+            
+            # 支持多种输出格式
+            if "ESP32-S3" in output_upper or "ESP32S3" in output_upper:
                 chip_type = "ESP32-S3"
-            elif "Chip is ESP32-S2" in output:
+            elif "ESP32-S2" in output_upper or "ESP32S2" in output_upper:
                 chip_type = "ESP32-S2"
-            elif "Chip is ESP32-C3" in output:
+            elif "ESP32-C3" in output_upper or "ESP32C3" in output_upper:
                 chip_type = "ESP32-C3"
-            elif "Chip is ESP32-C6" in output:
+            elif "ESP32-C6" in output_upper or "ESP32C6" in output_upper:
                 chip_type = "ESP32-C6"
-            elif "Chip is ESP32-P4" in output:
+            elif "ESP32-H2" in output_upper or "ESP32H2" in output_upper:
+                chip_type = "ESP32-H2"
+            elif "ESP32-P4" in output_upper or "ESP32P4" in output_upper:
                 chip_type = "ESP32-P4"
-            elif "Chip is ESP32" in output:
+            elif "ESP32-C2" in output_upper or "ESP32C2" in output_upper:
+                chip_type = "ESP32-C2"
+            elif "ESP32" in output_upper:
                 chip_type = "ESP32"
             
             if not chip_type:
-                log_window.log("未能识别芯片类型")
-                return
+                log_window.log("警告: 未能自动识别芯片类型，将使用通用参数")
+                chip_type = "ESP32"  # 使用默认值而不是退出
             
             log_window.log(f"检测到芯片类型: {chip_type}")
+            
+            # 提取MAC地址
+            mac_address = "Unknown"
+            import re
+            # 查找MAC地址模式 (xx:xx:xx:xx:xx:xx)
+            mac_match = re.search(r'MAC:\s*([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})', output)
+            if mac_match:
+                mac_address = mac_match.group(1)
+                log_window.log(f"MAC地址: {mac_address}")
             
             # 获取对应的芯片参数
             chip_param = self.get_chip_param(chip_type)
             if not chip_param:
                 log_window.log(f"不支持的芯片类型: {chip_type}")
+                self.add_flash_record(port, chip_type, mac_address, False, "不支持的芯片类型")
                 return
 
             # 根据芯片类型设置烧录参数
@@ -674,15 +901,20 @@ class ESP32Flasher:
                     'flash_freq': '40m',
                     'flash_size': 'detect'
                 },
-                'esp32s3': {
-                    'flash_mode': 'dio',
-                    'flash_freq': '80m',
-                    'flash_size': '16MB'
-                },
                 'esp32s2': {
                     'flash_mode': 'dio',
                     'flash_freq': '80m',
                     'flash_size': '4MB'
+                },
+                'esp32s3': {
+                    'flash_mode': 'qio',
+                    'flash_freq': '80m',
+                    'flash_size': '16MB'
+                },
+                'esp32c2': {
+                    'flash_mode': 'dio',
+                    'flash_freq': '60m',
+                    'flash_size': '2MB'
                 },
                 'esp32c3': {
                     'flash_mode': 'dio',
@@ -693,6 +925,16 @@ class ESP32Flasher:
                     'flash_mode': 'dio',
                     'flash_freq': '80m',
                     'flash_size': '4MB'
+                },
+                'esp32h2': {
+                    'flash_mode': 'dio',
+                    'flash_freq': '48m',
+                    'flash_size': '2MB'
+                },
+                'esp32p4': {
+                    'flash_mode': 'qio',
+                    'flash_freq': '80m',
+                    'flash_size': '16MB'
                 }
             }
 
@@ -778,10 +1020,17 @@ class ESP32Flasher:
                 log_window.log(f"端口 {port} 固件 {firmware} 烧录完成!")
 
             log_window.log(f"端口 {port} 所有固件烧录完成!")
+            
+            # 记录烧录成功
+            self.add_flash_record(port, chip_type, mac_address, True, "")
                 
         except Exception as e:
-            log_window.log(f"端口 {port} 烧录错误: {str(e)}")
-            self.log(f"错误: {str(e)}")
+            error_msg = str(e)
+            log_window.log(f"端口 {port} 烧录错误: {error_msg}")
+            self.log(f"错误: {error_msg}")
+            
+            # 记录烧录失败
+            self.add_flash_record(port, chip_type, mac_address, False, error_msg)
 
 
     def close_log_window(self, port):
@@ -794,10 +1043,35 @@ class ESP32Flasher:
                 self.log(f"关闭日志窗口失败: {str(e)}")
 
     def log(self, message):
-        """线程安全的日志记录方法"""
+        """线程安全的日志记录方法，支持彩色日志"""
         def _log():
             try:
-                self.log_text.insert("end", message + "\n")
+                # 配置日志标签颜色
+                if not hasattr(self, '_log_tags_configured'):
+                    self.log_text.tag_config("info", foreground=COLORS['text_primary'])
+                    self.log_text.tag_config("success", foreground=COLORS['success'], font=('Consolas', 10, 'bold'))
+                    self.log_text.tag_config("error", foreground=COLORS['danger'], font=('Consolas', 10, 'bold'))
+                    self.log_text.tag_config("warning", foreground=COLORS['warning'])
+                    self._log_tags_configured = True
+                
+                # 添加时间戳
+                timestamp = time.strftime("%H:%M:%S")
+                formatted_msg = f"[{timestamp}] {message}\n"
+                
+                # 根据消息内容选择标签
+                tag = "info"
+                if "错误" in message or "失败" in message or "Error" in message:
+                    tag = "error"
+                    self.update_status("错误")
+                elif "警告" in message or "Warning" in message:
+                    tag = "warning"
+                elif "成功" in message or "完成" in message:
+                    tag = "success"
+                    self.update_status("完成")
+                elif "开始" in message:
+                    self.update_status("烧录中...")
+                
+                self.log_text.insert("end", formatted_msg, tag)
                 self.log_text.see("end")
             except Exception:
                 pass
@@ -808,22 +1082,145 @@ class ESP32Flasher:
         except Exception:
             # 如果after失败，直接调用（可能在主线程中）
             _log()
+    
+    def update_status(self, message):
+        """更新状态栏信息"""
+        def _update():
+            try:
+                if hasattr(self, 'status_label'):
+                    self.status_label.config(text=f"版本: v1.0 | {message}")
+                if hasattr(self, 'log_status'):
+                    self.log_status.config(text=message)
+            except:
+                pass
+        
+        try:
+            self.root.after(0, _update)
+        except:
+            _update()
 
     def clear_log(self):
         """清除日志内容"""
         self.log_text.delete(1.0, tk.END)
+        self.update_status("就绪")
 
     def get_chip_param(self, chip_type):
         """将检测到的芯片类型转换为对应的参数"""
         chip_map = {
             'ESP32': 'esp32',
-            'ESP32-S3': 'esp32s3',
             'ESP32-S2': 'esp32s2',
+            'ESP32-S3': 'esp32s3',
+            'ESP32-C2': 'esp32c2',
             'ESP32-C3': 'esp32c3',
             'ESP32-C6': 'esp32c6',
+            'ESP32-H2': 'esp32h2',
             'ESP32-P4': 'esp32p4'
         }
-        return chip_map.get(chip_type)
+        return chip_map.get(chip_type, 'esp32')  # 默认返回 esp32
+    
+    def add_flash_record(self, port, chip_type, mac_address, success, error_msg=""):
+        """添加烧录记录"""
+        import datetime
+        record = {
+            'time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'port': port,
+            'chip_type': chip_type,
+            'mac_address': mac_address,
+            'success': success,
+            'error_msg': error_msg
+        }
+        self.flash_records.append(record)
+        
+        # 更新统计
+        self.flash_total_count += 1
+        if success:
+            self.flash_success_count += 1
+        else:
+            self.flash_fail_count += 1
+        
+        # 更新显示
+        self.update_stats()
+        
+        # 记录到日志
+        status = "成功" if success else "失败"
+        self.log(f"记录: {port} {chip_type} {mac_address} - {status}")
+    
+    def update_stats(self):
+        """更新统计显示"""
+        def _update():
+            try:
+                self.success_label.config(text=str(self.flash_success_count))
+                self.fail_label.config(text=str(self.flash_fail_count))
+                self.total_label.config(text=str(self.flash_total_count))
+            except:
+                pass
+        
+        try:
+            self.root.after(0, _update)
+        except:
+            _update()
+    
+    def export_records(self):
+        """导出烧录记录到CSV文件"""
+        if not self.flash_records:
+            messagebox.showinfo("提示", "暂无烧录记录")
+            return
+        
+        try:
+            import datetime
+            import csv
+            from tkinter import filedialog
+            
+            # 默认文件名
+            default_filename = f"烧录记录_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+            
+            # 选择保存位置
+            filename = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                initialfile=default_filename,
+                filetypes=[("CSV文件", "*.csv"), ("所有文件", "*.*")]
+            )
+            
+            if not filename:
+                return
+            
+            # 写入CSV文件
+            with open(filename, 'w', newline='', encoding='utf-8-sig') as f:
+                writer = csv.writer(f)
+                # 写入表头
+                writer.writerow(['烧录时间', '端口', '芯片型号', 'MAC地址', '状态', '错误信息'])
+                # 写入数据
+                for record in self.flash_records:
+                    status = "成功" if record['success'] else "失败"
+                    writer.writerow([
+                        record['time'],
+                        record['port'],
+                        record['chip_type'],
+                        record['mac_address'],
+                        status,
+                        record.get('error_msg', '')
+                    ])
+            
+            self.log(f"记录已导出到: {filename}")
+            messagebox.showinfo("成功", f"已导出 {len(self.flash_records)} 条记录到:\n{filename}")
+            
+        except Exception as e:
+            self.log(f"导出记录失败: {str(e)}")
+            messagebox.showerror("错误", f"导出记录失败:\n{str(e)}")
+    
+    def clear_records(self):
+        """清空烧录记录"""
+        if not self.flash_records:
+            messagebox.showinfo("提示", "暂无烧录记录")
+            return
+        
+        if messagebox.askyesno("确认", f"确定要清空所有 {len(self.flash_records)} 条烧录记录吗？"):
+            self.flash_records.clear()
+            self.flash_success_count = 0
+            self.flash_fail_count = 0
+            self.flash_total_count = 0
+            self.update_stats()
+            self.log("已清空所有烧录记录")
 
     def check_dependencies(self):
         """检查必要的依赖"""

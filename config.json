@@ -1,1 +1,45 @@
-{"firmware_paths": ["", "", "", "", "", "", "", ""], "firmware_addresses": ["0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0", "0x0"], "firmware_enables": [false, false, false, false, false, false, false, false], "auto_flash": true, "port_enables": [true, true, true, true, true, true, true, true]}
+{
+  "firmware_paths": [
+    "F:/GitHub_My/KSDIY_Korvo/yuying_Firmware/Aiks/AMOLED_Fram_251010/build/Controller.bin",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    ""
+  ],
+  "firmware_addresses": [
+    "0x20000",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0",
+    "0x0"
+  ],
+  "firmware_enables": [
+    true,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "auto_flash": true,
+  "port_enables": [
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true,
+    true
+  ],
+  "baudrate": 2000000,
+  "erase_flash": false
+}
