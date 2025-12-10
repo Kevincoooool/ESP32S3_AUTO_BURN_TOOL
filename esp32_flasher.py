@@ -16,20 +16,20 @@ except ImportError:
     import serial.tools.list_ports
     list_ports = serial.tools.list_ports
 
-font_size = 11
+font_size = 10
 
-# 现代化配色方案
+# 现代化配色方案 - 高端简约风格
 COLORS = {
-    'primary': '#2563eb',      # 蓝色
-    'primary_hover': '#1d4ed8',
-    'success': '#10b981',      # 绿色
-    'danger': '#ef4444',       # 红色
-    'warning': '#f59e0b',      # 橙色
-    'bg_main': '#f8fafc',      # 主背景
+    'primary': '#1e40af',      # 深蓝色
+    'primary_hover': '#1e3a8a',
+    'success': '#059669',      # 深绿色
+    'danger': '#dc2626',       # 深红色
+    'warning': '#d97706',      # 深橙色
+    'bg_main': '#f9fafb',      # 主背景
     'bg_secondary': '#ffffff', # 次背景
-    'border': '#e2e8f0',       # 边框
-    'text_primary': '#1e293b', # 主文字
-    'text_secondary': '#64748b' # 次文字
+    'border': '#e5e7eb',       # 边框
+    'text_primary': '#111827', # 主文字
+    'text_secondary': '#6b7280' # 次文字
 }
 
 # 添加自定义样式和主题
@@ -49,44 +49,49 @@ def set_modern_style(root):
     # 自定义按钮样式 - 现代化设计
     style.configure('TButton', 
         font=('Microsoft YaHei UI', font_size),
-        padding=(15, 8)
+        padding=(12, 6)
     )
     
     # 强调按钮样式 - 蓝色主题
     style.configure('Accent.TButton', 
-        font=('Microsoft YaHei UI', font_size, 'bold'),
-        padding=(15, 10)
+        font=('Microsoft YaHei UI', font_size + 1, 'bold'),
+        padding=(16, 8)
     )
     
     # 自定义标签框样式
     style.configure('TLabelframe', 
-        font=('Microsoft YaHei UI', font_size)
+        font=('Microsoft YaHei UI', font_size),
+        borderwidth=1
     )
     style.configure('TLabelframe.Label', 
-        font=('Microsoft YaHei UI', font_size, 'bold'),
-        foreground=COLORS['text_primary']
+        font=('Microsoft YaHei UI', font_size + 1, 'bold'),
+        foreground=COLORS['primary']
     )
     
     # 自定义标签样式
     style.configure('TLabel', 
         font=('Microsoft YaHei UI', font_size),
-        foreground=COLORS['text_primary']
+        foreground=COLORS['text_primary'],
+        background=COLORS['bg_main']
     )
     
     # 自定义输入框样式
     style.configure('TEntry', 
-        font=('Microsoft YaHei UI', font_size)
+        font=('Microsoft YaHei UI', font_size),
+        fieldbackground=COLORS['bg_secondary']
     )
     
     # 自定义下拉框样式
     style.configure('TCombobox', 
-        font=('Microsoft YaHei UI', font_size)
+        font=('Microsoft YaHei UI', font_size),
+        fieldbackground=COLORS['bg_secondary']
     )
     
     # 自定义复选框样式
     style.configure('TCheckbutton', 
         font=('Microsoft YaHei UI', font_size),
-        foreground=COLORS['text_primary']
+        foreground=COLORS['text_primary'],
+        background=COLORS['bg_main']
     )
     
     # 设置窗口默认字体
@@ -191,8 +196,8 @@ class ESP32Flasher:
     def __init__(self, root):
         self.root = root
         self.config_file = 'config.json'
-        self.root.title("ESP32 烧录工具 - 现代化版")
-        self.root.geometry("1200x900")  # 调整为宽屏布局，包含统计面板
+        self.root.title("ESP32 烧录工具")
+        self.root.geometry("900x900")  # 调整为宽屏布局，包含统计面板
         
         # 检查并安装必要的依赖
         if not self.check_dependencies():
@@ -346,17 +351,17 @@ class ESP32Flasher:
 
     def create_ui(self):
         # 创建主框架，添加内边距
-        main_frame = ttk.Frame(self.root, padding=15)
+        main_frame = ttk.Frame(self.root, padding=20)
         main_frame.pack(fill="both", expand=True)
         
         # 添加标题栏
         title_frame = ttk.Frame(main_frame)
-        title_frame.pack(fill="x", pady=(0, 15))
+        title_frame.pack(fill="x", pady=(0, 20))
         
         title_label = ttk.Label(
             title_frame,
             text="ESP32 烧录工具",
-            font=('Microsoft YaHei UI', 18, 'bold'),
+            font=('Microsoft YaHei UI', 20, 'bold'),
             foreground=COLORS['primary']
         )
         title_label.pack(side="left")
@@ -364,10 +369,10 @@ class ESP32Flasher:
         subtitle_label = ttk.Label(
             title_frame,
             text="支持多串口、多固件同时烧录",
-            font=('Microsoft YaHei UI', 10),
+            font=('Microsoft YaHei UI', 11),
             foreground=COLORS['text_secondary']
         )
-        subtitle_label.pack(side="left", padx=(15, 0))
+        subtitle_label.pack(side="left", padx=(20, 0))
         
         # === 右侧：烧录统计面板 ===
         stats_frame = ttk.LabelFrame(title_frame, text="烧录统计", padding=10)
@@ -375,53 +380,53 @@ class ESP32Flasher:
         
         # 统计数据显示
         stats_row1 = ttk.Frame(stats_frame)
-        stats_row1.pack(fill="x", pady=2)
+        stats_row1.pack(fill="x", pady=3)
         
         # 成功次数
-        ttk.Label(stats_row1, text="✅ 成功:", font=('Microsoft YaHei UI', 9)).pack(side="left", padx=(0, 5))
+        ttk.Label(stats_row1, text="✅ 成功:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
         self.success_label = ttk.Label(
             stats_row1, 
             text="0", 
-            font=('Microsoft YaHei UI', 10, 'bold'),
+            font=('Microsoft YaHei UI', 11, 'bold'),
             foreground=COLORS['success']
         )
-        self.success_label.pack(side="left", padx=(0, 15))
+        self.success_label.pack(side="left", padx=(0, 20))
         
         # 失败次数
-        ttk.Label(stats_row1, text="❌ 失败:", font=('Microsoft YaHei UI', 9)).pack(side="left", padx=(0, 5))
+        ttk.Label(stats_row1, text="❌ 失败:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
         self.fail_label = ttk.Label(
             stats_row1, 
             text="0", 
-            font=('Microsoft YaHei UI', 10, 'bold'),
+            font=('Microsoft YaHei UI', 11, 'bold'),
             foreground=COLORS['danger']
         )
-        self.fail_label.pack(side="left", padx=(0, 15))
+        self.fail_label.pack(side="left", padx=(0, 20))
         
         # 总次数
-        ttk.Label(stats_row1, text="📊 总计:", font=('Microsoft YaHei UI', 9)).pack(side="left", padx=(0, 5))
+        ttk.Label(stats_row1, text="📊 总计:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
         self.total_label = ttk.Label(
             stats_row1, 
             text="0", 
-            font=('Microsoft YaHei UI', 10, 'bold'),
+            font=('Microsoft YaHei UI', 11, 'bold'),
             foreground=COLORS['primary']
         )
         self.total_label.pack(side="left")
         
         # 导出按钮
         stats_row2 = ttk.Frame(stats_frame)
-        stats_row2.pack(fill="x", pady=(5, 0))
+        stats_row2.pack(fill="x", pady=(8, 0))
         
         self.export_button = ttk.Button(
             stats_row2,
-            text="📤 导出记录",
+            text="📤 导出",
             command=self.export_records,
             style='TButton'
         )
-        self.export_button.pack(side="left", padx=(0, 5))
+        self.export_button.pack(side="left", padx=(0, 6))
         
         self.clear_records_button = ttk.Button(
             stats_row2,
-            text="🗑️ 清空记录",
+            text="🗑️ 清空",
             command=self.clear_records,
             style='TButton'
         )
@@ -429,18 +434,18 @@ class ESP32Flasher:
         
         # 创建左右分栏的主容器
         columns_frame = ttk.Frame(main_frame)
-        columns_frame.pack(fill="both", expand=True, pady=5)
+        columns_frame.pack(fill="both", expand=True, pady=(10, 0))
         
         # 左侧容器（串口设置）
         left_column = ttk.Frame(columns_frame)
-        left_column.pack(side="left", fill="both", expand=True, padx=(0, 10))
+        left_column.pack(side="left", fill="both", expand=True, padx=(0, 15))
         
         # 右侧容器（固件设置）
         right_column = ttk.Frame(columns_frame)
         right_column.pack(side="left", fill="both", expand=True)
         
         # === 左侧：串口设置 ===
-        self.port_frame = ttk.LabelFrame(left_column, text="串口设置", padding=10)
+        self.port_frame = ttk.LabelFrame(left_column, text="串口设置", padding=12)
         self.port_frame.pack(fill="both", expand=True)
         
         # 创建8个串口选择组
@@ -450,7 +455,7 @@ class ESP32Flasher:
         # 创建所有8个串口（垂直排列）
         for i in range(8):
             frame = ttk.Frame(self.port_frame)
-            frame.pack(fill="x", pady=3)
+            frame.pack(fill="x", pady=4)
             
             # 添加启用复选框
             enable_var = tk.BooleanVar(value=True)
@@ -459,30 +464,30 @@ class ESP32Flasher:
                 variable=enable_var,
                 command=lambda: self.save_config()
             )
-            enable_check.pack(side="left")
+            enable_check.pack(side="left", padx=(0, 8))
             self.port_enables.append(enable_var)
             
             # 串口标签
-            label = ttk.Label(frame, text=f"COM{i+1}:", width=6)
-            label.pack(side="left", padx=(0, 5))
+            label = ttk.Label(frame, text=f"COM{i+1}:", width=6, font=('Microsoft YaHei UI', font_size))
+            label.pack(side="left", padx=(0, 8))
             self.port_labels.append(label)
             
             # 串口下拉框
-            combobox = ttk.Combobox(frame, width=18)
-            combobox.pack(side="left", fill="x", expand=True, padx=5)
+            combobox = ttk.Combobox(frame, width=20)
+            combobox.pack(side="left", fill="x", expand=True, padx=0)
             self.port_comboboxes.append(combobox)
         
         # 刷新按钮放在底部中间，使用强调样式
         self.refresh_button = ttk.Button(
             self.port_frame, 
-            text="刷新", 
+            text="🔄 刷新", 
             command=self.refresh_ports,
             style='Accent.TButton'
         )
-        self.refresh_button.pack(pady=8)
+        self.refresh_button.pack(pady=12)
         
         # === 右侧：固件设置 ===
-        self.firmware_frame = ttk.LabelFrame(right_column, text="固件设置", padding=10)
+        self.firmware_frame = ttk.LabelFrame(right_column, text="固件设置", padding=12)
         self.firmware_frame.pack(fill="both", expand=True)
         
         # 创建固件选择组
@@ -494,7 +499,7 @@ class ESP32Flasher:
         # 修改为8个固件选择
         for i in range(8):
             frame = ttk.Frame(self.firmware_frame)
-            frame.pack(fill="x", pady=3)
+            frame.pack(fill="x", pady=4)
             
             # 启用选择框
             enable_var = tk.BooleanVar(value=False)
@@ -503,23 +508,23 @@ class ESP32Flasher:
                 variable=enable_var,
                 command=lambda: self.save_config()
             )
-            enable_check.pack(side="left")
+            enable_check.pack(side="left", padx=(0, 8))
             self.firmware_enables.append(enable_var)
             
             # 固件编号标签
             num_label = ttk.Label(
                 frame,
                 text=f"#{i+1}",
-                font=('Microsoft YaHei UI', font_size, 'bold'),
-                foreground=COLORS['text_secondary'],
+                font=('Microsoft YaHei UI', font_size + 1, 'bold'),
+                foreground=COLORS['primary'],
                 width=3
             )
-            num_label.pack(side="left")
+            num_label.pack(side="left", padx=(0, 8))
             
             # 固件路径
             path_var = tk.StringVar()
-            entry = ttk.Entry(frame, textvariable=path_var, width=30)
-            entry.pack(side="left", fill="x", expand=True, padx=5)
+            entry = ttk.Entry(frame, textvariable=path_var, width=28)
+            entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
             
             # 修复显示尾部的方法
             def scroll_to_end(var, entry=None):
@@ -533,40 +538,41 @@ class ESP32Flasher:
             self.firmware_entries.append(entry)
             
             # 地址输入框
-            addr_entry = ttk.Entry(frame, width=10)
+            addr_entry = ttk.Entry(frame, width=11)
             addr_entry.insert(0, "0x0")
-            addr_entry.pack(side="left", padx=5)
+            addr_entry.pack(side="left", padx=(0, 8))
             self.firmware_addresses.append(addr_entry)
             
             # 浏览按钮
             browse_btn = ttk.Button(
                 frame, 
                 text="浏览", 
-                command=lambda idx=i: self.browse_firmware(idx)
+                command=lambda idx=i: self.browse_firmware(idx),
+                width=6
             )
-            browse_btn.pack(side="left", padx=5)
+            browse_btn.pack(side="left", padx=0)
         
         # === 底部区域：烧录设置、按钮和日志 ===
         bottom_frame = ttk.Frame(main_frame)
-        bottom_frame.pack(fill="both", expand=True, pady=(10, 0))
+        bottom_frame.pack(fill="both", expand=True, pady=(15, 0))
         
         # 烧录设置
-        self.address_frame = ttk.LabelFrame(bottom_frame, text="烧录设置", padding=10)
-        self.address_frame.pack(fill="x", pady=(0, 5))
+        self.address_frame = ttk.LabelFrame(bottom_frame, text="烧录设置", padding=12)
+        self.address_frame.pack(fill="x", pady=(0, 12))
         
         # 第一行设置
         settings_row1 = ttk.Frame(self.address_frame)
-        settings_row1.pack(fill="x", pady=2)
+        settings_row1.pack(fill="x", pady=0)
         
         # 添加波特率选择
-        self.baud_label = ttk.Label(settings_row1, text="波特率:")
-        self.baud_label.pack(side="left", padx=5)
+        self.baud_label = ttk.Label(settings_row1, text="波特率:", font=('Microsoft YaHei UI', font_size))
+        self.baud_label.pack(side="left", padx=(0, 8))
         
         self.baud_rates = ['115200', '230400', '460800', '921600', '1152000', '1500000', '2000000']
-        self.baud_combobox = ttk.Combobox(settings_row1, width=10, values=self.baud_rates, state='readonly')
+        self.baud_combobox = ttk.Combobox(settings_row1, width=12, values=self.baud_rates, state='readonly')
         self.baud_combobox.set('921600')  # 默认值改为更稳定的921600
         self.baud_combobox.bind('<<ComboboxSelected>>', lambda e: self.save_config())
-        self.baud_combobox.pack(side="left", padx=5)
+        self.baud_combobox.pack(side="left", padx=(0, 20))
         
         # 擦除Flash选项
         self.erase_flash = tk.BooleanVar(value=False)
@@ -576,7 +582,7 @@ class ESP32Flasher:
             variable=self.erase_flash,
             command=lambda: self.save_config()
         )
-        self.erase_flash_check.pack(side="left", padx=15)
+        self.erase_flash_check.pack(side="left", padx=(0, 20))
         
         # 在波特率选择后添加自动烧录选项
         self.auto_flash = tk.BooleanVar(value=False)
@@ -586,37 +592,38 @@ class ESP32Flasher:
             variable=self.auto_flash,
             command=lambda: self.save_config()
         )
-        self.auto_flash_check.pack(side="left", padx=15)
+        self.auto_flash_check.pack(side="left", padx=0)
         
-        # 烧录按钮
+        # 烧录按钮 - 放在右侧
         self.flash_button = ttk.Button(
-            bottom_frame, 
+            settings_row1, 
             text="开始烧录", 
             command=self.start_flash,
             style='Accent.TButton'
         )
-        self.flash_button.pack(pady=8)
+        self.flash_button.pack(side="right", padx=(20, 0))
         
         # 日志显示
-        self.log_frame = ttk.LabelFrame(bottom_frame, text="运行日志", padding=10)
-        self.log_frame.pack(fill="both", expand=True, pady=(0, 5))
+        self.log_frame = ttk.LabelFrame(bottom_frame, text="运行日志", padding=12)
+        self.log_frame.pack(fill="both", expand=True, pady=(0, 0))
         
         # 创建日志工具栏
         log_toolbar = ttk.Frame(self.log_frame)
-        log_toolbar.pack(fill="x", pady=(0, 8))
+        log_toolbar.pack(fill="x", pady=(0, 10))
         
         # 日志状态标签
         self.log_status = ttk.Label(
             log_toolbar,
             text="就绪",
-            font=('Microsoft YaHei UI', font_size)
+            font=('Microsoft YaHei UI', font_size + 1, 'bold'),
+            foreground=COLORS['primary']
         )
         self.log_status.pack(side="left")
         
         # 添加清除日志按钮
         clear_button = ttk.Button(
             log_toolbar, 
-            text="清除日志", 
+            text="🗑️ 清除日志", 
             command=self.clear_log,
             style='TButton'
         )
@@ -633,16 +640,17 @@ class ESP32Flasher:
         # 创建文本框并关联滚动条，使用更现代的样式
         self.log_text = tk.Text(
             log_text_frame, 
-            height=12,
+            height=14,
             yscrollcommand=scrollbar.set,
             font=('Consolas', 10),
             background=COLORS['bg_secondary'],
             foreground=COLORS['text_primary'],
             borderwidth=1,
             relief="solid",
-            padx=10,
+            padx=12,
             pady=10,
-            wrap=tk.WORD
+            wrap=tk.WORD,
+            insertbackground=COLORS['primary']
         )
         self.log_text.pack(side="left", fill="both", expand=True)
         
@@ -651,20 +659,20 @@ class ESP32Flasher:
         
         # === 最底部：状态栏 ===
         status_frame = ttk.Frame(main_frame)
-        status_frame.pack(fill="x", pady=(0, 0))
+        status_frame.pack(fill="x", pady=(12, 0))
         
         # 状态栏分隔线
         separator = ttk.Separator(status_frame, orient='horizontal')
-        separator.pack(fill="x", pady=(0, 5))
+        separator.pack(fill="x", pady=(0, 8))
         
         # 状态信息
         self.status_label = ttk.Label(
             status_frame,
             text="版本: v1.0 | 就绪",
-            font=('Microsoft YaHei UI', 9),
+            font=('Microsoft YaHei UI', 10),
             foreground=COLORS['text_secondary']
         )
-        self.status_label.pack(side="left", padx=5)
+        self.status_label.pack(side="left", padx=0)
         
         # 初始化串口列表
         self.refresh_ports()
@@ -947,7 +955,7 @@ class ESP32Flasher:
                     "python", "-m", "esptool",
                     "--port", port,
                     "--baud", self.baud_combobox.get(),
-                    "erase_flash"
+                    "erase-flash"
                 ]
                 
                 startupinfo = subprocess.STARTUPINFO()
@@ -979,12 +987,9 @@ class ESP32Flasher:
                     "python", "-m", "esptool",
                     "--port", port,
                     "--baud", self.baud_combobox.get(),
-                    "--before", "default_reset",
-                    "--after", "hard_reset",
-                    "write_flash",
-                    "-z",  # 添加压缩选项，加快烧录速度
-                    "--flash_mode", params['flash_mode'],
-                    "--flash_freq", params['flash_freq'],
+                    "--before", "default-reset",
+                    "--after", "hard-reset",
+                    "write-flash",
                     address, firmware
                 ]
                 

@@ -1,7 +1,7 @@
 {
   "firmware_paths": [
     "F:/GitHub_My/KSDIY_Korvo/yuying_Firmware/Aiks/AMOLED_Fram_251010/build/Controller.bin",
-    "",
+    "F:/GitHub_My/KSDIY_Korvo/Korvo_Firmware/16.Korvo_TEST/16.Korvo_TEST.bin",
     "",
     "",
     "",
@@ -20,8 +20,8 @@
     "0x0"
   ],
   "firmware_enables": [
-    true,
     false,
+    true,
     false,
     false,
     false,
@@ -29,7 +29,7 @@
     false,
     false
   ],
-  "auto_flash": true,
+  "auto_flash": false,
   "port_enables": [
     true,
     true,
