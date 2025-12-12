@@ -16,20 +16,21 @@ except ImportError:
     import serial.tools.list_ports
     list_ports = serial.tools.list_ports
 
-font_size = 10
+font_size = 11
 
-# 现代化配色方案 - 高端简约风格
+# 科技感配色方案 - 冷静蓝 + 深色文字
 COLORS = {
-    'primary': '#1e40af',      # 深蓝色
-    'primary_hover': '#1e3a8a',
-    'success': '#059669',      # 深绿色
-    'danger': '#dc2626',       # 深红色
-    'warning': '#d97706',      # 深橙色
-    'bg_main': '#f9fafb',      # 主背景
-    'bg_secondary': '#ffffff', # 次背景
-    'border': '#e5e7eb',       # 边框
-    'text_primary': '#111827', # 主文字
-    'text_secondary': '#6b7280' # 次文字
+    'primary': '#1d4ed8',        # 科技蓝（更深以提升对比）
+    'primary_hover': '#1338a3',
+    'primary_press': '#0f2f82',
+    'success': '#12b76a',
+    'danger': '#ef4444',
+    'warning': '#f59e0b',
+    'bg_main': '#eef2f7',        # 主背景：浅冷灰蓝
+    'bg_secondary': '#f8fafc',   # 面板/输入背景
+    'border': '#d7deea',         # 边框
+    'text_primary': '#0f172a',   # 深色文字
+    'text_secondary': '#475569'  # 次级文字
 }
 
 # 添加自定义样式和主题
@@ -46,49 +47,92 @@ def set_modern_style(root):
         except:
             pass  # 如果没有可用的主题，使用默认主题
     
-    # 自定义按钮样式 - 现代化设计
-    style.configure('TButton', 
+    # 统一背景
+    style.configure('TFrame', background=COLORS['bg_main'])
+    
+    # 自定义按钮样式 - 现代科技感
+    style.configure(
+        'TButton',
         font=('Microsoft YaHei UI', font_size),
-        padding=(12, 6)
+        padding=(14, 7),
+        background=COLORS['bg_secondary'],
+        foreground=COLORS['text_primary'],
+        borderwidth=1,
+        relief='flat'
+    )
+    style.map(
+        'TButton',
+        background=[
+            ('!disabled', COLORS['bg_secondary']),
+            ('active', '#e2e8f0'),
+            ('pressed', COLORS['border'])
+        ],
+        foreground=[('disabled', COLORS['text_secondary'])]
     )
     
-    # 强调按钮样式 - 蓝色主题
-    style.configure('Accent.TButton', 
+    # 强调按钮样式 - 蓝色主色
+    style.configure(
+        'Accent.TButton',
         font=('Microsoft YaHei UI', font_size + 1, 'bold'),
-        padding=(16, 8)
+        padding=(16, 9),
+        background=COLORS['primary'],
+        foreground='#f8fafc',
+        borderwidth=1,
+        relief='flat'
+    )
+    style.map(
+        'Accent.TButton',
+        background=[
+            ('!disabled', COLORS['primary']),
+            ('active', COLORS['primary_hover']),
+            ('pressed', COLORS['primary_press'])
+        ],
+        foreground=[('disabled', COLORS['text_secondary'])]
     )
     
     # 自定义标签框样式
-    style.configure('TLabelframe', 
+    style.configure(
+        'TLabelframe',
         font=('Microsoft YaHei UI', font_size),
-        borderwidth=1
+        borderwidth=1,
+        relief='solid',
+        background=COLORS['bg_main']
     )
-    style.configure('TLabelframe.Label', 
+    style.configure(
+        'TLabelframe.Label',
         font=('Microsoft YaHei UI', font_size + 1, 'bold'),
-        foreground=COLORS['primary']
+        foreground=COLORS['text_primary'],
+        background=COLORS['bg_main'],
+        padding=(4, 0)
     )
     
     # 自定义标签样式
-    style.configure('TLabel', 
+    style.configure(
+        'TLabel',
         font=('Microsoft YaHei UI', font_size),
         foreground=COLORS['text_primary'],
         background=COLORS['bg_main']
     )
     
     # 自定义输入框样式
-    style.configure('TEntry', 
+    style.configure(
+        'TEntry',
         font=('Microsoft YaHei UI', font_size),
+        foreground=COLORS['text_primary'],
         fieldbackground=COLORS['bg_secondary']
     )
     
     # 自定义下拉框样式
-    style.configure('TCombobox', 
+    style.configure(
+        'TCombobox',
         font=('Microsoft YaHei UI', font_size),
+        foreground=COLORS['text_primary'],
         fieldbackground=COLORS['bg_secondary']
     )
     
     # 自定义复选框样式
-    style.configure('TCheckbutton', 
+    style.configure(
+        'TCheckbutton',
         font=('Microsoft YaHei UI', font_size),
         foreground=COLORS['text_primary'],
         background=COLORS['bg_main']
@@ -197,7 +241,7 @@ class ESP32Flasher:
         self.root = root
         self.config_file = 'config.json'
         self.root.title("ESP32 烧录工具")
-        self.root.geometry("900x900")  # 调整为宽屏布局，包含统计面板
+        self.root.geometry("980x900")  # 调整为宽屏布局，包含统计面板
         
         # 检查并安装必要的依赖
         if not self.check_dependencies():
@@ -480,9 +524,9 @@ class ESP32Flasher:
         # 刷新按钮放在底部中间，使用强调样式
         self.refresh_button = ttk.Button(
             self.port_frame, 
-            text="🔄 刷新", 
+            text="刷新", 
             command=self.refresh_ports,
-            style='Accent.TButton'
+            style='TButton'
         )
         self.refresh_button.pack(pady=12)
         
@@ -599,7 +643,7 @@ class ESP32Flasher:
             settings_row1, 
             text="开始烧录", 
             command=self.start_flash,
-            style='Accent.TButton'
+            style='TButton'
         )
         self.flash_button.pack(side="right", padx=(20, 0))
         
