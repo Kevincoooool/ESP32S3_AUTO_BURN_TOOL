@@ -884,7 +884,7 @@ class ESP32Flasher:
             
             # 使用子进程执行芯片检测，避免输出重定向冲突
             import subprocess
-            cmd = ["python", "-m", "esptool", "--port", port, "read_mac"]
+            cmd = ["python", "-m", "esptool", "--port", port, "read-mac"]
             startupinfo = subprocess.STARTUPINFO()
             startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             startupinfo.wShowWindow = subprocess.SW_HIDE
