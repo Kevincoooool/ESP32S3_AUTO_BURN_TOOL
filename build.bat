@@ -64,7 +64,25 @@ echo.
 echo ========================================
 echo 正在打包 MAC 地址读取工具...
 echo ========================================
-pyinstaller esp32_readmac.spec
+pyinstaller --onefile --windowed --name esp32_readmac ^
+    --hidden-import=esptool ^
+    --hidden-import=esptool.cmds ^
+    --hidden-import=esptool.targets ^
+    --hidden-import=esptool.targets.esp32 ^
+    --hidden-import=esptool.targets.esp32s2 ^
+    --hidden-import=esptool.targets.esp32s3 ^
+    --hidden-import=esptool.targets.esp32c2 ^
+    --hidden-import=esptool.targets.esp32c3 ^
+    --hidden-import=esptool.targets.esp32c6 ^
+    --hidden-import=esptool.targets.esp32h2 ^
+    --hidden-import=esptool.targets.esp32p4 ^
+    --hidden-import=esptool.loader ^
+    --hidden-import=esptool.util ^
+    --hidden-import=serial ^
+    --hidden-import=serial.tools ^
+    --hidden-import=serial.tools.list_ports ^
+    --collect-all=esptool ^
+    esp32_readmac.py
 if %errorlevel% neq 0 (
     echo [错误] MAC 读取工具打包失败！
     pause
@@ -77,7 +95,25 @@ echo.
 echo ========================================
 echo 正在打包固件烧录工具...
 echo ========================================
-pyinstaller esp32_flasher.spec
+pyinstaller --onefile --windowed --name esp32_flasher ^
+    --hidden-import=esptool ^
+    --hidden-import=esptool.cmds ^
+    --hidden-import=esptool.targets ^
+    --hidden-import=esptool.targets.esp32 ^
+    --hidden-import=esptool.targets.esp32s2 ^
+    --hidden-import=esptool.targets.esp32s3 ^
+    --hidden-import=esptool.targets.esp32c2 ^
+    --hidden-import=esptool.targets.esp32c3 ^
+    --hidden-import=esptool.targets.esp32c6 ^
+    --hidden-import=esptool.targets.esp32h2 ^
+    --hidden-import=esptool.targets.esp32p4 ^
+    --hidden-import=esptool.loader ^
+    --hidden-import=esptool.util ^
+    --hidden-import=serial ^
+    --hidden-import=serial.tools ^
+    --hidden-import=serial.tools.list_ports ^
+    --collect-all=esptool ^
+    esp32_flasher.py
 if %errorlevel% neq 0 (
     echo [错误] 固件烧录工具打包失败！
     pause

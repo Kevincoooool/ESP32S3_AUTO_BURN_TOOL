@@ -6,6 +6,8 @@ import json
 import os
 import locale
 import subprocess
+import sys
+import io
 
 # 导入serial模块
 try:
@@ -15,6 +17,12 @@ except ImportError:
     import serial
     import serial.tools.list_ports
     list_ports = serial.tools.list_ports
+
+# 导入esptool模块（打包后也可用）
+try:
+    import esptool
+except ImportError:
+    esptool = None
 
 font_size = 11
 
@@ -163,11 +171,12 @@ class LogRedirector:
         pass
 
 class LogWindow:
-    def __init__(self, port):
+    def __init__(self, port, on_close=None):
         self.window = tk.Toplevel()
         self.window.title(f"端口 {port} 烧录日志")
         self.window.geometry("700x500")  # 调整窗口大小
         self.window.configure(bg=COLORS['bg_main'])
+        self._on_close = on_close
         
         # 设置窗口图标
         try:
@@ -226,6 +235,22 @@ class LogWindow:
         
         scrollbar.config(command=self.log_text.yview)
         
+        # 关闭窗口时回调（用于停止烧录）
+        try:
+            self.window.protocol("WM_DELETE_WINDOW", self._handle_close)
+        except Exception:
+            pass
+
+    def _handle_close(self):
+        try:
+            if callable(self._on_close):
+                self._on_close()
+        finally:
+            try:
+                self.window.destroy()
+            except Exception:
+                pass
+        
     def log(self, message):
         self.log_text.insert("end", message + "\n")
         self.log_text.see("end")
@@ -260,6 +285,8 @@ class ESP32Flasher:
         
         # 初始化基本变量
         self.log_windows = {}
+        self.flash_cancel_events = {}
+        self.flash_processes = {}
         self.config = {'firmware_paths': [''] * 8, 'firmware_addresses': ['0x0'] * 8}  # 修改为8个
         self.port_enables = []  # 添加串口启用状态列表
         
@@ -271,6 +298,12 @@ class ESP32Flasher:
         
         # 创建UI
         self.create_ui()
+        
+        # 主窗口关闭时，停止烧录并退出
+        try:
+            self.root.protocol("WM_DELETE_WINDOW", self.on_main_close)
+        except Exception:
+            pass
         
         # 延迟加载配置和启动监控
         self.root.after(100, self.delayed_init)
@@ -284,10 +317,10 @@ class ESP32Flasher:
         self.refresh_ports()
         
         # 启动串口监控
-        self.log("🔍 正在启动串口监控线程...")
+        self.log("正在启动串口监控线程...")
         self.port_monitor_thread = threading.Thread(target=self.monitor_ports, daemon=True)
         self.port_monitor_thread.start()
-        self.log("✅ 串口监控线程已启动，等待设备插入...")
+        self.log("串口监控线程已启动，等待设备插入...")
         
         # 重定向标准输出到日志框
         import sys
@@ -333,21 +366,21 @@ class ESP32Flasher:
             self.log(f"[调试] 自动烧录状态: {self.auto_flash.get()}")
             
             if self.auto_flash.get():
-                self.log("✅ 自动烧录已启用，准备开始烧录...")
+                self.log("自动烧录已启用，准备开始烧录...")
                 # 转换为列表并创建副本，避免引用问题
                 new_ports_list = list(new_ports)
                 self.log(f"[调试] 将在1秒后处理端口: {new_ports_list}")
                 # 添加短暂延迟，等待设备初始化
                 self.root.after(1000, lambda ports=new_ports_list: self.handle_new_ports(ports))
             else:
-                self.log("⚠️ 自动烧录未启用，请勾选'自动烧录'选项")
+                self.log("自动烧录未启用，请勾选'自动烧录'选项")
         
         # 更新端口列表
         self.refresh_ports()
 
     def handle_new_ports(self, new_ports):
         """处理新增端口"""
-        self.log(f"[调试] ▶ 开始处理新端口: {new_ports}")
+        self.log(f"[调试] 开始处理新端口: {new_ports}")
         selected_firmwares = []
         
         # 检查启用的固件
@@ -361,15 +394,15 @@ class ESP32Flasher:
                 self.log(f"[调试] 固件 #{i+1} 已启用: {firmware}")
                 if firmware and os.path.exists(firmware):
                     selected_firmwares.append((firmware, address))
-                    self.log(f"✅ 已选择固件 #{i+1}: {os.path.basename(firmware)} 地址: {address}")
+                    self.log(f"已选择固件 #{i+1}: {os.path.basename(firmware)} 地址: {address}")
                 else:
-                    self.log(f"⚠️ 警告: 固件 #{i+1} 已启用但路径无效: {firmware}")
+                    self.log(f"警告: 固件 #{i+1} 已启用但路径无效: {firmware}")
         
         self.log(f"[调试] 共有 {enabled_count} 个固件被启用，{len(selected_firmwares)} 个有效")
         
         if not selected_firmwares:
-            self.log("❌ 错误: 没有选择有效的固件，无法执行自动烧录")
-            self.log("💡 提示: 请勾选至少一个固件前的复选框，并确保固件路径有效")
+            self.log("错误: 没有选择有效的固件，无法执行自动烧录")
+            self.log("提示: 请勾选至少一个固件前的复选框，并确保固件路径有效")
             return
         
         # 对于自动烧录，直接使用所有新插入的端口
@@ -377,10 +410,10 @@ class ESP32Flasher:
         enabled_ports = list(new_ports)
         
         if not enabled_ports:
-            self.log("❌ 没有新端口可用于自动烧录")
+            self.log("没有新端口可用于自动烧录")
             return
         
-        self.log(f"🚀 开始为 {len(enabled_ports)} 个新端口烧录 {len(selected_firmwares)} 个固件")
+        self.log(f"开始为 {len(enabled_ports)} 个新端口烧录 {len(selected_firmwares)} 个固件")
         
         # 为每个新端口创建烧录线程
         for port in enabled_ports:
@@ -391,7 +424,7 @@ class ESP32Flasher:
                 daemon=True
             )
             thread.start()
-            self.log(f"✅ 烧录线程已启动: {port}")
+            self.log(f"烧录线程已启动: {port}")
 
     def create_ui(self):
         # 创建主框架，添加内边距
@@ -427,7 +460,7 @@ class ESP32Flasher:
         stats_row1.pack(fill="x", pady=3)
         
         # 成功次数
-        ttk.Label(stats_row1, text="✅ 成功:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
+        ttk.Label(stats_row1, text="成功:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
         self.success_label = ttk.Label(
             stats_row1, 
             text="0", 
@@ -437,7 +470,7 @@ class ESP32Flasher:
         self.success_label.pack(side="left", padx=(0, 20))
         
         # 失败次数
-        ttk.Label(stats_row1, text="❌ 失败:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
+        ttk.Label(stats_row1, text="失败:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
         self.fail_label = ttk.Label(
             stats_row1, 
             text="0", 
@@ -447,7 +480,7 @@ class ESP32Flasher:
         self.fail_label.pack(side="left", padx=(0, 20))
         
         # 总次数
-        ttk.Label(stats_row1, text="📊 总计:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
+        ttk.Label(stats_row1, text="总计:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
         self.total_label = ttk.Label(
             stats_row1, 
             text="0", 
@@ -462,7 +495,7 @@ class ESP32Flasher:
         
         self.export_button = ttk.Button(
             stats_row2,
-            text="📤 导出",
+            text="导出",
             command=self.export_records,
             style='TButton'
         )
@@ -470,7 +503,7 @@ class ESP32Flasher:
         
         self.clear_records_button = ttk.Button(
             stats_row2,
-            text="🗑️ 清空",
+            text="清空",
             command=self.clear_records,
             style='TButton'
         )
@@ -667,7 +700,7 @@ class ESP32Flasher:
         # 添加清除日志按钮
         clear_button = ttk.Button(
             log_toolbar, 
-            text="🗑️ 清除日志", 
+            text="清除日志", 
             command=self.clear_log,
             style='TButton'
         )
@@ -854,59 +887,102 @@ class ESP32Flasher:
             )
             thread.start()
 
+    def _run_esptool(self, args, log_window, port=None, cancel_event=None):
+        captured_lines = []
+
+        cmd = [sys.executable, "-m", "esptool"] + list(args)
+        creationflags = 0
+        if os.name == "nt":
+            try:
+                creationflags = subprocess.CREATE_NO_WINDOW
+            except Exception:
+                creationflags = 0
+
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            creationflags=creationflags
+        )
+
+        if port:
+            self.flash_processes[port] = proc
+
+        try:
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    raise RuntimeError("cancelled")
+
+                line = proc.stdout.readline() if proc.stdout else ""
+                if not line:
+                    if proc.poll() is not None:
+                        break
+                    time.sleep(0.01)
+                    continue
+
+                text_line = line.rstrip("\r\n")
+                captured_lines.append(text_line)
+                try:
+                    log_window.window.after(0, lambda t=text_line: log_window.log(t))
+                except Exception:
+                    pass
+
+            rc = proc.wait()
+            if rc != 0:
+                raise RuntimeError(f"esptool exited with code {rc}")
+        finally:
+            if port:
+                try:
+                    if self.flash_processes.get(port) is proc:
+                        del self.flash_processes[port]
+                except Exception:
+                    pass
+            try:
+                if proc.stdout:
+                    proc.stdout.close()
+            except Exception:
+                pass
+
+        return "\n".join(captured_lines)
+
+    def _release_port(self, port):
+        try:
+            s = serial.Serial(port=port, baudrate=115200, timeout=0)
+            try:
+                s.dtr = False
+                s.rts = False
+            except Exception:
+                pass
+            s.close()
+        except Exception:
+            pass
+
     def flash_process_multi(self, port, firmwares):
-        # 创建新的日志窗口
-        log_window = LogWindow(port)
+        cancel_event = threading.Event()
+        self.flash_cancel_events[port] = cancel_event
+        log_window = LogWindow(port, on_close=lambda p=port: self.stop_flash(p))
         self.log_windows[port] = log_window
-        # 确保日志窗口显示在前台
         log_window.window.lift()
         log_window.window.focus_force()
-        
-        # 记录开始信息
+
         log_window.log(f"开始为端口 {port} 烧录固件...")
         self.log(f"开始为端口 {port} 烧录固件...")
-        try:
-            # 创建输出重定向类
-            class ThreadSafeOutput:
-                def __init__(self, log_window):
-                    self._log_window = log_window
-                
-                def write(self, text):
-                    if text and text.strip():
-                        # 使用after方法确保在主线程中更新UI
-                        self._log_window.window.after(0, lambda: self._log_window.log(text.strip()))
-                
-                def flush(self):
-                    pass
-            
-            # 检测芯片类型
-            log_window.log(f"检测芯片类型...")
-            
-            # 使用子进程执行芯片检测，避免输出重定向冲突
-            import subprocess
-            cmd = ["python", "-m", "esptool", "--port", port, "read-mac"]
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-            process = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
-                text=True,
-                startupinfo=startupinfo
-            )
 
-            output = ""
-            for line in process.stdout:
-                log_window.log(line.strip())
-                output += line
-            process.wait()
-            
-            # 从输出中解析芯片类型 - 改进的解析逻辑
-            chip_type = None
+        chip_type = None
+        mac_address = "Unknown"
+
+        try:
+            import re
+
+            if cancel_event.is_set():
+                raise Exception("cancelled")
+
+            log_window.log("检测芯片类型...")
+            output = self._run_esptool(["--port", port, "read-mac"], log_window, port=port, cancel_event=cancel_event)
+
             output_upper = output.upper()
-            
-            # 支持多种输出格式
             if "ESP32-S3" in output_upper or "ESP32S3" in output_upper:
                 chip_type = "ESP32-S3"
             elif "ESP32-S2" in output_upper or "ESP32S2" in output_upper:
@@ -923,164 +999,81 @@ class ESP32Flasher:
                 chip_type = "ESP32-C2"
             elif "ESP32" in output_upper:
                 chip_type = "ESP32"
-            
+
             if not chip_type:
                 log_window.log("警告: 未能自动识别芯片类型，将使用通用参数")
-                chip_type = "ESP32"  # 使用默认值而不是退出
-            
+                chip_type = "ESP32"
+
             log_window.log(f"检测到芯片类型: {chip_type}")
-            
-            # 提取MAC地址
-            mac_address = "Unknown"
-            import re
-            # 查找MAC地址模式 (xx:xx:xx:xx:xx:xx)
-            mac_match = re.search(r'MAC:\s*([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})', output)
+
+            mac_match = re.search(
+                r'MAC:\s*([0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2}:[0-9a-fA-F]{2})',
+                output
+            )
             if mac_match:
                 mac_address = mac_match.group(1)
                 log_window.log(f"MAC地址: {mac_address}")
-            
-            # 获取对应的芯片参数
+
             chip_param = self.get_chip_param(chip_type)
             if not chip_param:
                 log_window.log(f"不支持的芯片类型: {chip_type}")
                 self.add_flash_record(port, chip_type, mac_address, False, "不支持的芯片类型")
                 return
 
-            # 根据芯片类型设置烧录参数
-            flash_params = {
-                'esp32': {
-                    'flash_mode': 'dio',
-                    'flash_freq': '40m',
-                    'flash_size': 'detect'
-                },
-                'esp32s2': {
-                    'flash_mode': 'dio',
-                    'flash_freq': '80m',
-                    'flash_size': '4MB'
-                },
-                'esp32s3': {
-                    'flash_mode': 'qio',
-                    'flash_freq': '80m',
-                    'flash_size': '16MB'
-                },
-                'esp32c2': {
-                    'flash_mode': 'dio',
-                    'flash_freq': '60m',
-                    'flash_size': '2MB'
-                },
-                'esp32c3': {
-                    'flash_mode': 'dio',
-                    'flash_freq': '80m',
-                    'flash_size': '4MB'
-                },
-                'esp32c6': {
-                    'flash_mode': 'dio',
-                    'flash_freq': '80m',
-                    'flash_size': '4MB'
-                },
-                'esp32h2': {
-                    'flash_mode': 'dio',
-                    'flash_freq': '48m',
-                    'flash_size': '2MB'
-                },
-                'esp32p4': {
-                    'flash_mode': 'qio',
-                    'flash_freq': '80m',
-                    'flash_size': '16MB'
-                }
-            }
-
-            params = flash_params.get(chip_param, flash_params['esp32'])
-
-            # 如果需要擦除Flash，先执行擦除操作
             if self.erase_flash.get():
                 log_window.log("正在擦除Flash...")
-                erase_cmd = [
-                    "python", "-m", "esptool",
+                self._run_esptool([
                     "--port", port,
                     "--baud", self.baud_combobox.get(),
-                    "erase-flash"
-                ]
-                
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                
-                erase_process = subprocess.Popen(
-                    " ".join(erase_cmd),
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    startupinfo=startupinfo,
-                    shell=True
-                )
-                
-                for line in erase_process.stdout:
-                    log_window.log(line.strip())
-                erase_process.wait()
-                
-                if erase_process.returncode != 0:
-                    log_window.log(f"擦除Flash失败，返回码: {erase_process.returncode}")
-                    raise Exception(f"擦除Flash失败，返回码: {erase_process.returncode}")
-                
+                    "erase_flash"
+                ], log_window, port=port, cancel_event=cancel_event)
                 log_window.log("Flash擦除完成!")
 
-            # 为每个固件创建命令并执行烧录
             for firmware, address in firmwares:
-                # 构建烧录命令
-                flash_cmd = [
-                    "python", "-m", "esptool",
+                if cancel_event.is_set():
+                    raise Exception("cancelled")
+                flash_args = [
                     "--port", port,
                     "--baud", self.baud_combobox.get(),
-                    "--before", "default-reset",
-                    "--after", "hard-reset",
+                    "--before", "default_reset",
+                    "--after", "hard_reset",
                     "write-flash",
                     address, firmware
                 ]
-                
-                log_window.log(f"执行命令: {' '.join(flash_cmd)}")
-                
-                # 使用子进程执行烧录，确保正确处理中文路径
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                
-                # 获取系统默认编码
-                system_encoding = locale.getpreferredencoding()
-                log_window.log(f"系统编码: {system_encoding}")
-                
-                # 使用shell=True来处理中文路径问题
-                cmd_str = " ".join(flash_cmd)
-                process = subprocess.Popen(
-                    cmd_str, 
-                    stdout=subprocess.PIPE, 
-                    stderr=subprocess.STDOUT, 
-                    text=True,
-                    startupinfo=startupinfo,
-                    shell=True
-                )
-                
-                for line in process.stdout:
-                    log_window.log(line.strip())
-                process.wait()
-                
-                if process.returncode != 0:
-                    log_window.log(f"烧录失败，返回码: {process.returncode}")
-                    raise Exception(f"烧录失败，返回码: {process.returncode}")
-                
+
+                log_window.log(f"执行命令: esptool {' '.join(flash_args)}")
+                self._run_esptool(flash_args, log_window, port=port, cancel_event=cancel_event)
                 log_window.log(f"端口 {port} 固件 {firmware} 烧录完成!")
 
             log_window.log(f"端口 {port} 所有固件烧录完成!")
-            
-            # 记录烧录成功
             self.add_flash_record(port, chip_type, mac_address, True, "")
-                
+
         except Exception as e:
             error_msg = str(e)
-            log_window.log(f"端口 {port} 烧录错误: {error_msg}")
-            self.log(f"错误: {error_msg}")
-            
-            # 记录烧录失败
-            self.add_flash_record(port, chip_type, mac_address, False, error_msg)
+            if "cancelled" in error_msg.lower() or error_msg == "cancelled":
+                try:
+                    log_window.log(f"端口 {port} 已停止烧录")
+                except Exception:
+                    pass
+                self.log(f"端口 {port} 已停止烧录")
+                self._release_port(port)
+            else:
+                log_window.log(f"端口 {port} 烧录错误: {error_msg}")
+                self.log(f"错误: {error_msg}")
+                self.add_flash_record(port, chip_type if chip_type else "Unknown", mac_address, False, error_msg)
 
+        finally:
+            # 清理取消标志
+            try:
+                if port in self.flash_cancel_events:
+                    del self.flash_cancel_events[port]
+            except Exception:
+                pass
+            try:
+                if port in self.flash_processes:
+                    del self.flash_processes[port]
+            except Exception:
+                pass
 
     def close_log_window(self, port):
         """安全地关闭日志窗口"""
@@ -1090,6 +1083,68 @@ class ESP32Flasher:
                 del self.log_windows[port]
             except Exception as e:
                 self.log(f"关闭日志窗口失败: {str(e)}")
+
+    def stop_flash(self, port=None):
+        """停止烧录（port=None 表示停止所有端口）"""
+        if port is None:
+            for p in list(self.flash_cancel_events.keys()):
+                try:
+                    self.flash_cancel_events[p].set()
+                except Exception:
+                    pass
+                try:
+                    proc = self.flash_processes.get(p)
+                    if proc and proc.poll() is None:
+                        if os.name == "nt":
+                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                        else:
+                            proc.terminate()
+                except Exception:
+                    pass
+                try:
+                    self._release_port(p)
+                except Exception:
+                    pass
+            return
+
+        try:
+            if port in self.flash_cancel_events:
+                self.flash_cancel_events[port].set()
+        except Exception:
+            pass
+
+        try:
+            proc = self.flash_processes.get(port)
+            if proc and proc.poll() is None:
+                if os.name == "nt":
+                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                else:
+                    proc.terminate()
+        except Exception:
+            pass
+
+        try:
+            self._release_port(port)
+        except Exception:
+            pass
+
+    def on_main_close(self):
+        """主窗口关闭：停止所有烧录并关闭所有日志窗口"""
+        try:
+            self.stop_flash(None)
+        except Exception:
+            pass
+
+        for port in list(self.log_windows.keys()):
+            try:
+                self.close_log_window(port)
+            except Exception:
+                pass
+
+        try:
+            self.root.destroy()
+        except Exception:
+            pass
 
     def log(self, message):
         """线程安全的日志记录方法，支持彩色日志"""
@@ -1274,9 +1329,8 @@ class ESP32Flasher:
     def check_dependencies(self):
         """检查必要的依赖"""
         try:
-            # 只检查serial库，esptool通过命令行调用
             import serial
-            import subprocess
+            import esptool
             return True
         except ImportError as e:
             messagebox.showerror("依赖错误", f"缺少必要的依赖: {str(e)}\n请安装所需的依赖后重试。")
