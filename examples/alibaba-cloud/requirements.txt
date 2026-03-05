@@ -1,0 +1,4 @@
+pipecat-ai[silero,websocket]
+python-dotenv
+openai
+websockets
