@@ -24,7 +24,7 @@ try:
 except ImportError:
     esptool = None
 
-font_size = 11
+font_size = 10
 
 # 科技感配色方案 - 冷静蓝 + 深色文字
 COLORS = {
@@ -34,9 +34,9 @@ COLORS = {
     'success': '#12b76a',
     'danger': '#ef4444',
     'warning': '#f59e0b',
-    'bg_main': '#eef2f7',        # 主背景：浅冷灰蓝
-    'bg_secondary': '#f8fafc',   # 面板/输入背景
-    'border': '#d7deea',         # 边框
+    'bg_main': '#f8fafc',        # 主背景：浅冷灰蓝
+    'bg_secondary': '#ffffff',   # 面板/输入背景
+    'border': '#e2e8f0',         # 边框
     'text_primary': '#0f172a',   # 深色文字
     'text_secondary': '#475569'  # 次级文字
 }
@@ -62,7 +62,7 @@ def set_modern_style(root):
     style.configure(
         'TButton',
         font=('Microsoft YaHei UI', font_size),
-        padding=(14, 7),
+        padding=(6, 3),
         background=COLORS['bg_secondary'],
         foreground=COLORS['text_primary'],
         borderwidth=1,
@@ -82,20 +82,16 @@ def set_modern_style(root):
     style.configure(
         'Accent.TButton',
         font=('Microsoft YaHei UI', font_size + 1, 'bold'),
-        padding=(16, 9),
-        background=COLORS['primary'],
-        foreground='#f8fafc',
-        borderwidth=1,
-        relief='flat'
+        padding=(12, 6),
+        foreground=COLORS['primary']
     )
     style.map(
         'Accent.TButton',
-        background=[
-            ('!disabled', COLORS['primary']),
-            ('active', COLORS['primary_hover']),
-            ('pressed', COLORS['primary_press'])
-        ],
-        foreground=[('disabled', COLORS['text_secondary'])]
+        foreground=[
+            ('disabled', COLORS['text_secondary']),
+            ('pressed', COLORS['primary_press']),
+            ('active', COLORS['primary_hover'])
+        ]
     )
     
     # 自定义标签框样式
@@ -131,6 +127,25 @@ def set_modern_style(root):
     )
     
     # 自定义下拉框样式
+    # Treeview 扁平化美化
+    style.configure("Treeview", 
+        background="#ffffff",
+        foreground=COLORS['text_primary'],
+        rowheight=32,
+        fieldbackground="#ffffff",
+        borderwidth=0,
+        font=('Microsoft YaHei UI', 9)
+    )
+    style.configure("Treeview.Heading",
+        background=COLORS['bg_main'],
+        foreground=COLORS['text_secondary'],
+        font=('Microsoft YaHei UI', 10, 'bold'),
+        borderwidth=0,
+        relief='flat',
+        padding=(0, 6)
+    )
+    style.map("Treeview", background=[('selected', COLORS['primary'])], foreground=[('selected', 'white')])
+
     style.configure(
         'TCombobox',
         font=('Microsoft YaHei UI', font_size),
@@ -252,8 +267,11 @@ class LogWindow:
                 pass
         
     def log(self, message):
-        self.log_text.insert("end", message + "\n")
-        self.log_text.see("end")
+        try:
+            self.log_text.insert("end", message + "\n")
+            self.log_text.see("end")
+        except Exception:
+            pass
         
     def clear_log(self):
         self.log_text.delete(1.0, tk.END)
@@ -266,7 +284,7 @@ class ESP32Flasher:
         self.root = root
         self.config_file = 'config.json'
         self.root.title("ESP32 烧录工具")
-        self.root.geometry("980x900")  # 调整为宽屏布局，包含统计面板
+        self.root.geometry("1350x800")  # 调整为宽屏布局，包含统计面板
         
         # 检查并安装必要的依赖
         if not self.check_dependencies():
@@ -427,344 +445,242 @@ class ESP32Flasher:
             self.log(f"烧录线程已启动: {port}")
 
     def create_ui(self):
-        # 创建主框架，添加内边距
-        main_frame = ttk.Frame(self.root, padding=20)
-        main_frame.pack(fill="both", expand=True)
+        # 创建左右分割主窗口
+        self.root_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
+        self.root_paned.pack(fill="both", expand=True)
+
+        # 创建主框架（左侧），添加内边距
+        main_frame = ttk.Frame(self.root_paned, padding=15)
+        self.root_paned.add(main_frame, weight=7)
         
-        # 添加标题栏
+        # === 历史记录面板（右侧） ===
+        history_frame = ttk.Frame(self.root_paned, padding=15)
+        self.root_paned.add(history_frame, weight=3)
+        
+        history_title = ttk.Label(history_frame, text="烧录记录", font=('Microsoft YaHei UI', 11, 'bold'), foreground=COLORS['text_primary'])
+        history_title.pack(anchor="w", pady=(0, 15))
+        
+        columns = ("time", "port", "mac", "chip", "status")
+        self.history_tree = ttk.Treeview(history_frame, columns=columns, show="headings", height=20)
+        self.history_tree.heading("time", text="时间")
+        self.history_tree.heading("port", text="端口")
+        self.history_tree.heading("mac", text="MAC地址")
+        self.history_tree.heading("chip", text="芯片")
+        self.history_tree.heading("status", text="状态")
+        
+        self.history_tree.column("time", width=70, anchor="center")
+        self.history_tree.column("port", width=60, anchor="center")
+        self.history_tree.column("mac", width=125, anchor="center")
+        self.history_tree.column("chip", width=75, anchor="center")
+        self.history_tree.column("status", width=50, anchor="center")
+        
+        history_scroll = ttk.Scrollbar(history_frame, orient="vertical", command=self.history_tree.yview)
+        self.history_tree.configure(yscrollcommand=history_scroll.set)
+        
+        self.history_tree.pack(side="left", fill="both", expand=True)
+        history_scroll.pack(side="right", fill="y")
+        
+        self.history_tree.tag_configure('success', foreground=COLORS['success'], font=('Microsoft YaHei UI', 9))
+        self.history_tree.tag_configure('fail', foreground=COLORS['danger'], font=('Microsoft YaHei UI', 9))
+
+        # === 顶部区域 ===
         title_frame = ttk.Frame(main_frame)
-        title_frame.pack(fill="x", pady=(0, 20))
+        title_frame.pack(fill="x", pady=(0, 15))
         
         title_label = ttk.Label(
-            title_frame,
-            text="ESP32 烧录工具",
-            font=('Microsoft YaHei UI', 20, 'bold'),
-            foreground=COLORS['primary']
+            title_frame, text="ESP32 批量烧录工具",
+            font=('Microsoft YaHei UI', 15, 'bold'), foreground=COLORS['primary']
         )
         title_label.pack(side="left")
         
         subtitle_label = ttk.Label(
-            title_frame,
-            text="支持多串口、多固件同时烧录",
-            font=('Microsoft YaHei UI', 11),
-            foreground=COLORS['text_secondary']
+            title_frame, text="支持多路串口并行烧录", font=('Microsoft YaHei UI', 10), foreground=COLORS['text_secondary']
         )
-        subtitle_label.pack(side="left", padx=(20, 0))
+        subtitle_label.pack(side="left", padx=(15,0), pady=(4,0))
         
-        # === 右侧：烧录统计面板 ===
-        stats_frame = ttk.LabelFrame(title_frame, text="烧录统计", padding=10)
-        stats_frame.pack(side="right")
+        stats_frame = ttk.Frame(title_frame)
+        stats_frame.pack(side="right", fill="y")
         
-        # 统计数据显示
-        stats_row1 = ttk.Frame(stats_frame)
-        stats_row1.pack(fill="x", pady=3)
+        ttk.Label(stats_frame, text="成功:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 4))
+        self.success_label = ttk.Label(stats_frame, text="0", font=('Microsoft YaHei UI', 11, 'bold'), foreground=COLORS['success'])
+        self.success_label.pack(side="left", padx=(0, 12))
         
-        # 成功次数
-        ttk.Label(stats_row1, text="成功:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
-        self.success_label = ttk.Label(
-            stats_row1, 
-            text="0", 
-            font=('Microsoft YaHei UI', 11, 'bold'),
-            foreground=COLORS['success']
-        )
-        self.success_label.pack(side="left", padx=(0, 20))
+        ttk.Label(stats_frame, text="失败:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 4))
+        self.fail_label = ttk.Label(stats_frame, text="0", font=('Microsoft YaHei UI', 11, 'bold'), foreground=COLORS['danger'])
+        self.fail_label.pack(side="left", padx=(0, 12))
         
-        # 失败次数
-        ttk.Label(stats_row1, text="失败:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
-        self.fail_label = ttk.Label(
-            stats_row1, 
-            text="0", 
-            font=('Microsoft YaHei UI', 11, 'bold'),
-            foreground=COLORS['danger']
-        )
-        self.fail_label.pack(side="left", padx=(0, 20))
+        self.export_button = ttk.Button(stats_frame, text="导出", command=self.export_records)
+        self.export_button.pack(side="left", padx=(8, 4))
         
-        # 总次数
-        ttk.Label(stats_row1, text="总计:", font=('Microsoft YaHei UI', 10)).pack(side="left", padx=(0, 8))
-        self.total_label = ttk.Label(
-            stats_row1, 
-            text="0", 
-            font=('Microsoft YaHei UI', 11, 'bold'),
-            foreground=COLORS['primary']
-        )
-        self.total_label.pack(side="left")
-        
-        # 导出按钮
-        stats_row2 = ttk.Frame(stats_frame)
-        stats_row2.pack(fill="x", pady=(8, 0))
-        
-        self.export_button = ttk.Button(
-            stats_row2,
-            text="导出",
-            command=self.export_records,
-            style='TButton'
-        )
-        self.export_button.pack(side="left", padx=(0, 6))
-        
-        self.clear_records_button = ttk.Button(
-            stats_row2,
-            text="清空",
-            command=self.clear_records,
-            style='TButton'
-        )
+        self.clear_records_button = ttk.Button(stats_frame, text="清空", width=6, command=self.clear_records)
         self.clear_records_button.pack(side="left")
         
-        # 创建左右分栏的主容器
-        columns_frame = ttk.Frame(main_frame)
-        columns_frame.pack(fill="both", expand=True, pady=(10, 0))
+        self.paned_window = ttk.PanedWindow(main_frame, orient=tk.VERTICAL)
+        self.paned_window.pack(fill="both", expand=True, pady=(5, 0))
         
-        # 左侧容器（串口设置）
+        config_frame = ttk.Frame(self.paned_window)
+        self.paned_window.add(config_frame, weight=5)
+        
+        columns_frame = ttk.Frame(config_frame)
+        columns_frame.pack(fill="both", expand=True)
+        
         left_column = ttk.Frame(columns_frame)
-        left_column.pack(side="left", fill="both", expand=True, padx=(0, 15))
+        left_column.pack(side="left", fill="both", expand=True, padx=(0, 12))
         
-        # 右侧容器（固件设置）
         right_column = ttk.Frame(columns_frame)
-        right_column.pack(side="left", fill="both", expand=True)
+        right_column.pack(side="left", fill="both", expand=True, padx=(12, 0))
         
-        # === 左侧：串口设置 ===
-        self.port_frame = ttk.LabelFrame(left_column, text="串口设置", padding=12)
+        # --- 串口设置 ---
+        self.port_frame = ttk.Frame(left_column)
         self.port_frame.pack(fill="both", expand=True)
+        ttk.Label(self.port_frame, text="串口配置", font=('Microsoft YaHei UI', 11, 'bold'), foreground=COLORS['text_primary']).grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 8))
         
-        # 创建8个串口选择组
         self.port_comboboxes = []
         self.port_labels = []
-        self.port_erase_buttons = []  # 擦除按钮列表
+        self.port_erase_buttons = []
+        self.port_enables = []
 
-        # 创建所有8个串口（垂直排列）
         for i in range(8):
-            frame = ttk.Frame(self.port_frame)
-            frame.pack(fill="x", pady=4)
-
-            # 添加启用复选框
+            r = i + 1
+            self.port_frame.rowconfigure(r, weight=1)
             enable_var = tk.BooleanVar(value=True)
-            enable_check = ttk.Checkbutton(
-                frame,
-                variable=enable_var,
-                command=lambda: self.save_config()
-            )
-            enable_check.pack(side="left", padx=(0, 8))
+            ttk.Checkbutton(self.port_frame, variable=enable_var, command=self.save_config).grid(row=r, column=0, padx=2, pady=3)
             self.port_enables.append(enable_var)
 
-            # 串口标签
-            label = ttk.Label(frame, text=f"COM{i+1}:", width=6, font=('Microsoft YaHei UI', font_size))
-            label.pack(side="left", padx=(0, 8))
-            self.port_labels.append(label)
+            lbl = ttk.Label(self.port_frame, text=f"COM {i+1}:", font=('Microsoft YaHei UI', 10), foreground=COLORS['text_primary'])
+            lbl.grid(row=r, column=1, padx=4, pady=3, sticky="w")
+            self.port_labels.append(lbl)
 
-            # 串口下拉框
-            combobox = ttk.Combobox(frame, width=20)
-            combobox.pack(side="left", fill="x", expand=True, padx=0)
-            self.port_comboboxes.append(combobox)
+            cb = ttk.Combobox(self.port_frame, width=16)
+            cb.grid(row=r, column=2, padx=4, pady=3, sticky="ew")
+            self.port_frame.columnconfigure(2, weight=1)
+            self.port_comboboxes.append(cb)
 
-            # 擦除按钮
-            erase_btn = ttk.Button(
-                frame,
-                text="擦除",
-                width=6,
-                command=lambda idx=i: self.erase_single_port(idx)
-            )
-            erase_btn.pack(side="left", padx=(8, 0))
-            self.port_erase_buttons.append(erase_btn)
+            btn = ttk.Button(self.port_frame, text="擦除", width=6, command=lambda idx=i: self.erase_single_port(idx))
+            btn.grid(row=r, column=3, padx=2, pady=3)
+            self.port_erase_buttons.append(btn)
         
-        # 刷新按钮放在底部中间，使用强调样式
-        self.refresh_button = ttk.Button(
-            self.port_frame, 
-            text="刷新", 
-            command=self.refresh_ports,
-            style='TButton'
-        )
-        self.refresh_button.pack(pady=12)
+        self.refresh_button = ttk.Button(self.port_frame, text="刷新列表", command=self.refresh_ports)
+        self.refresh_button.grid(row=9, column=0, columnspan=4, pady=12)
         
-        # === 右侧：固件设置 ===
-        self.firmware_frame = ttk.LabelFrame(right_column, text="固件设置", padding=12)
+        # --- 固件设置 ---
+        self.firmware_frame = ttk.Frame(right_column)
         self.firmware_frame.pack(fill="both", expand=True)
+        ttk.Label(self.firmware_frame, text="固件配置", font=('Microsoft YaHei UI', 11, 'bold'), foreground=COLORS['text_primary']).grid(row=0, column=0, columnspan=5, sticky="w", pady=(0, 8))
         
-        # 创建固件选择组
         self.firmware_paths = []
         self.firmware_entries = []
         self.firmware_addresses = []
         self.firmware_enables = []
         
-        # 修改为8个固件选择
         for i in range(8):
-            frame = ttk.Frame(self.firmware_frame)
-            frame.pack(fill="x", pady=4)
+            r = i + 1
+            self.firmware_frame.rowconfigure(r, weight=1)
             
-            # 启用选择框
             enable_var = tk.BooleanVar(value=False)
-            enable_check = ttk.Checkbutton(
-                frame, 
-                variable=enable_var,
-                command=lambda: self.save_config()
-            )
-            enable_check.pack(side="left", padx=(0, 8))
+            ttk.Checkbutton(self.firmware_frame, variable=enable_var, command=self.save_config).grid(row=r, column=0, padx=2, pady=3)
             self.firmware_enables.append(enable_var)
             
-            # 固件编号标签
-            num_label = ttk.Label(
-                frame,
-                text=f"#{i+1}",
-                font=('Microsoft YaHei UI', font_size + 1, 'bold'),
-                foreground=COLORS['primary'],
-                width=3
-            )
-            num_label.pack(side="left", padx=(0, 8))
+            ttk.Label(self.firmware_frame, text=f"#{i+1}", foreground=COLORS['primary'], font=('', 10, 'bold')).grid(row=r, column=1, padx=2, pady=3)
             
-            # 固件路径
+            addr_entry = ttk.Entry(self.firmware_frame, width=9)
+            addr_entry.insert(0, "0x0")
+            addr_entry.grid(row=r, column=2, padx=4, pady=3)
+            self.firmware_addresses.append(addr_entry)
+            
             path_var = tk.StringVar()
-            entry = ttk.Entry(frame, textvariable=path_var, width=28)
-            entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
-            
-            # 修复显示尾部的方法
-            def scroll_to_end(var, entry=None):
-                if entry:
-                    self.root.after(10, lambda: entry.xview_moveto(1.0))
-            
-            # 绑定变量变化事件
-            path_var.trace_add("write", lambda name, index, mode, e=entry: scroll_to_end(None, e))
-            
+            entry = ttk.Entry(self.firmware_frame, textvariable=path_var)
+            entry.grid(row=r, column=3, padx=4, pady=3, sticky="ew")
+            self.firmware_frame.columnconfigure(3, weight=1)
+            path_var.trace_add("write", lambda n, idx, m, e=entry: self.root.after(10, lambda: e.xview_moveto(1.0)))
             self.firmware_paths.append(path_var)
             self.firmware_entries.append(entry)
             
-            # 地址输入框
-            addr_entry = ttk.Entry(frame, width=11)
-            addr_entry.insert(0, "0x0")
-            addr_entry.pack(side="left", padx=(0, 8))
-            self.firmware_addresses.append(addr_entry)
-            
-            # 浏览按钮
-            browse_btn = ttk.Button(
-                frame, 
-                text="浏览", 
-                command=lambda idx=i: self.browse_firmware(idx),
-                width=6
-            )
-            browse_btn.pack(side="left", padx=0)
+            ttk.Button(self.firmware_frame, text="浏览", width=5, command=lambda idx=i: self.browse_firmware(idx)).grid(row=r, column=4, padx=2, pady=3)
         
-        # === 底部区域：烧录设置、按钮和日志 ===
-        bottom_frame = ttk.Frame(main_frame)
-        bottom_frame.pack(fill="both", expand=True, pady=(15, 0))
+        # --- 核心烧录参数 ---
+        self.address_frame = ttk.Frame(config_frame)
+        self.address_frame.pack(fill="x", pady=(18, 5))
+        ttk.Label(self.address_frame, text="烧录配置", font=('Microsoft YaHei UI', 11, 'bold'), foreground=COLORS['text_primary']).pack(anchor="w", pady=(0, 8))
         
-        # 烧录设置
-        self.address_frame = ttk.LabelFrame(bottom_frame, text="烧录设置", padding=12)
-        self.address_frame.pack(fill="x", pady=(0, 12))
+        settings_frame = ttk.Frame(self.address_frame)
+        settings_frame.pack(fill="x")
         
-        # 第一行设置
-        settings_row1 = ttk.Frame(self.address_frame)
-        settings_row1.pack(fill="x", pady=0)
-        
-        # 添加波特率选择
-        self.baud_label = ttk.Label(settings_row1, text="波特率:", font=('Microsoft YaHei UI', font_size))
-        self.baud_label.pack(side="left", padx=(0, 8))
-        
-        self.baud_rates = ['115200', '230400', '460800', '921600', '1152000', '1500000', '2000000']
-        self.baud_combobox = ttk.Combobox(settings_row1, width=12, values=self.baud_rates, state='readonly')
-        self.baud_combobox.set('921600')  # 默认值改为更稳定的921600
+        ttk.Label(settings_frame, text="波特率:").pack(side="left", padx=(0, 4))
+        self.baud_rates = ['115200', '230400', '460800', '921600', '1500000', '2000000', '4000000']
+        self.baud_combobox = ttk.Combobox(settings_frame, width=10, values=self.baud_rates, state='readonly')
+        self.baud_combobox.set('4000000')
         self.baud_combobox.bind('<<ComboboxSelected>>', lambda e: self.save_config())
-        self.baud_combobox.pack(side="left", padx=(0, 20))
+        self.baud_combobox.pack(side="left", padx=(0, 15))
+
+        ttk.Label(settings_frame, text="模式(Mode):").pack(side="left", padx=(0, 4))
+        self.flash_mode_vars = ['keep', 'dio', 'dout', 'qio', 'qout']
+        self.flash_mode_cb = ttk.Combobox(settings_frame, width=6, values=self.flash_mode_vars, state='readonly')
+        self.flash_mode_cb.set('keep')
+        self.flash_mode_cb.bind('<<ComboboxSelected>>', lambda e: self.save_config())
+        self.flash_mode_cb.pack(side="left", padx=(0, 15))
         
-        # 擦除Flash选项
+        ttk.Label(settings_frame, text="频率(Freq):").pack(side="left", padx=(0, 4))
+        self.flash_freq_vars = ['keep', '40m', '80m', '120m']
+        self.flash_freq_cb = ttk.Combobox(settings_frame, width=6, values=self.flash_freq_vars, state='readonly')
+        self.flash_freq_cb.set('keep')
+        self.flash_freq_cb.bind('<<ComboboxSelected>>', lambda e: self.save_config())
+        self.flash_freq_cb.pack(side="left", padx=(0, 15))
+        
         self.erase_flash = tk.BooleanVar(value=False)
-        self.erase_flash_check = ttk.Checkbutton(
-            settings_row1, 
-            text="擦除Flash", 
-            variable=self.erase_flash,
-            command=lambda: self.save_config()
-        )
-        self.erase_flash_check.pack(side="left", padx=(0, 20))
+        ttk.Checkbutton(settings_frame, text="烧录前擦除", variable=self.erase_flash, command=self.save_config).pack(side="left", padx=(0, 15))
         
-        # 在波特率选择后添加自动烧录选项
         self.auto_flash = tk.BooleanVar(value=False)
-        self.auto_flash_check = ttk.Checkbutton(
-            settings_row1, 
-            text="自动烧录", 
-            variable=self.auto_flash,
-            command=lambda: self.save_config()
+        ttk.Checkbutton(settings_frame, text="自动烧录", variable=self.auto_flash, command=self.save_config).pack(side="left", padx=(0, 15))
+        
+        self.flash_button = tk.Button(
+            settings_frame, text="开始烧录", command=self.start_flash,
+            bg=COLORS['primary'], fg='white', font=('Microsoft YaHei UI', 11, 'bold'),
+            relief='flat', padx=24, pady=5, cursor='hand2', activebackground=COLORS['primary_hover'], activeforeground='white'
         )
-        self.auto_flash_check.pack(side="left", padx=0)
+        self.flash_button.pack(side="right")
         
-        # 烧录按钮 - 放在右侧
-        self.flash_button = ttk.Button(
-            settings_row1, 
-            text="开始烧录", 
-            command=self.start_flash,
-            style='TButton'
-        )
-        self.flash_button.pack(side="right", padx=(20, 0))
+        # --- 终端运行日志 ---
+        self.log_frame = ttk.Frame(self.paned_window)
+        self.paned_window.add(self.log_frame, weight=3)
         
-        # 日志显示
-        self.log_frame = ttk.LabelFrame(bottom_frame, text="运行日志", padding=12)
-        self.log_frame.pack(fill="both", expand=True, pady=(0, 0))
-        
-        # 创建日志工具栏
         log_toolbar = ttk.Frame(self.log_frame)
-        log_toolbar.pack(fill="x", pady=(0, 10))
+        log_toolbar.pack(fill="x", pady=(5, 5))
         
-        # 日志状态标签
-        self.log_status = ttk.Label(
-            log_toolbar,
-            text="就绪",
-            font=('Microsoft YaHei UI', font_size + 1, 'bold'),
-            foreground=COLORS['primary']
-        )
+        self.log_status = ttk.Label(log_toolbar, text="就绪", font=('Microsoft YaHei UI', 10), foreground=COLORS['primary'])
         self.log_status.pack(side="left")
         
-        # 添加清除日志按钮
-        clear_button = ttk.Button(
-            log_toolbar, 
-            text="清除日志", 
-            command=self.clear_log,
-            style='TButton'
-        )
-        clear_button.pack(side="right")
+        ttk.Button(log_toolbar, text="清空日志", command=self.clear_log, width=10).pack(side="right")
         
-        # 创建日志文本框架
         log_text_frame = ttk.Frame(self.log_frame)
         log_text_frame.pack(fill="both", expand=True)
         
-        # 创建滚动条
         scrollbar = ttk.Scrollbar(log_text_frame)
         scrollbar.pack(side="right", fill="y")
         
-        # 创建文本框并关联滚动条，使用更现代的样式
         self.log_text = tk.Text(
             log_text_frame, 
-            height=14,
+            height=6,
             yscrollcommand=scrollbar.set,
             font=('Consolas', 10),
-            background=COLORS['bg_secondary'],
-            foreground=COLORS['text_primary'],
-            borderwidth=1,
-            relief="solid",
+            background='#0f172a',
+            foreground='#e2e8f0',
+            borderwidth=0,
             padx=12,
-            pady=10,
+            pady=12,
             wrap=tk.WORD,
-            insertbackground=COLORS['primary']
+            insertbackground='white'
         )
         self.log_text.pack(side="left", fill="both", expand=True)
-        
-        # 设置滚动条的命令
         scrollbar.config(command=self.log_text.yview)
         
-        # === 最底部：状态栏 ===
         status_frame = ttk.Frame(main_frame)
-        status_frame.pack(fill="x", pady=(12, 0))
+        status_frame.pack(fill="x", pady=(8, 0))
+        ttk.Separator(status_frame, orient='horizontal').pack(fill="x", pady=(0, 6))
+        self.status_label = ttk.Label(status_frame, text="版本: v1.0 | 就绪", font=('Microsoft YaHei UI', 9), foreground=COLORS['text_secondary'])
+        self.status_label.pack(side="left")
         
-        # 状态栏分隔线
-        separator = ttk.Separator(status_frame, orient='horizontal')
-        separator.pack(fill="x", pady=(0, 8))
-        
-        # 状态信息
-        self.status_label = ttk.Label(
-            status_frame,
-            text="版本: v1.0 | 就绪",
-            font=('Microsoft YaHei UI', 10),
-            foreground=COLORS['text_secondary']
-        )
-        self.status_label.pack(side="left", padx=0)
-        
-        # 初始化串口列表
         self.refresh_ports()
-
     def erase_single_port(self, port_index):
         """擦除单个端口的Flash"""
         # 获取选中的端口
@@ -884,6 +800,11 @@ class ESP32Flasher:
                     # 加载擦除Flash设置
                     if 'erase_flash' in self.config:
                         self.erase_flash.set(self.config['erase_flash'])
+                    # 加载Flash模式和频率
+                    if 'flash_mode' in self.config:
+                        self.flash_mode_cb.set(self.config['flash_mode'])
+                    if 'flash_freq' in self.config:
+                        self.flash_freq_cb.set(self.config['flash_freq'])
             else:
                 self.config = {
                     'firmware_paths': [''] * 8,
@@ -892,7 +813,9 @@ class ESP32Flasher:
                     'port_enables': [True] * 8,
                     'auto_flash': False,
                     'baudrate': 921600,
-                    'erase_flash': False
+                    'erase_flash': False,
+                    'flash_mode': 'keep',
+                    'flash_freq': 'keep'
                 }
         except Exception as e:
             self.log(f"加载配置失败: {str(e)}")
@@ -903,7 +826,9 @@ class ESP32Flasher:
                 'port_enables': [True] * 8,
                 'auto_flash': False,
                 'baudrate': 921600,
-                'erase_flash': False
+                'erase_flash': False,
+                'flash_mode': 'keep',
+                'flash_freq': 'keep'
             }
 
     def save_config(self):
@@ -915,6 +840,8 @@ class ESP32Flasher:
             self.config['auto_flash'] = self.auto_flash.get()
             self.config['baudrate'] = int(self.baud_combobox.get())
             self.config['erase_flash'] = self.erase_flash.get()
+            self.config['flash_mode'] = self.flash_mode_cb.get()
+            self.config['flash_freq'] = self.flash_freq_cb.get()
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2)
         except Exception as e:
@@ -1114,10 +1041,14 @@ class ESP32Flasher:
                     "--port", port,
                     "--baud", self.baud_combobox.get(),
                     "--before", "default_reset",
-                    "--after", "hard_reset",
-                    "write-flash",
-                    address, firmware
+                    "--after", "hard_reset"
                 ]
+                if self.flash_mode_cb.get() != 'keep':
+                    flash_args.extend(["--flash_mode", self.flash_mode_cb.get()])
+                if self.flash_freq_cb.get() != 'keep':
+                    flash_args.extend(["--flash_freq", self.flash_freq_cb.get()])
+                
+                flash_args.extend(["write_flash", address, firmware])
 
                 log_window.log(f"执行命令: esptool {' '.join(flash_args)}")
                 self._run_esptool(flash_args, log_window, port=port, cancel_event=cancel_event)
@@ -1125,6 +1056,9 @@ class ESP32Flasher:
 
             log_window.log(f"端口 {port} 所有固件烧录完成!")
             self.add_flash_record(port, chip_type, mac_address, True, "")
+            
+            log_window.log("\n✅ 烧录成功！为方便操作，此弹窗将在 3 秒后自动优雅关闭...")
+            self.root.after(3000, lambda p=port: self.close_log_window(p))
 
         except Exception as e:
             error_msg = str(e)
@@ -1230,10 +1164,10 @@ class ESP32Flasher:
             try:
                 # 配置日志标签颜色
                 if not hasattr(self, '_log_tags_configured'):
-                    self.log_text.tag_config("info", foreground=COLORS['text_primary'])
-                    self.log_text.tag_config("success", foreground=COLORS['success'], font=('Consolas', 10, 'bold'))
-                    self.log_text.tag_config("error", foreground=COLORS['danger'], font=('Consolas', 10, 'bold'))
-                    self.log_text.tag_config("warning", foreground=COLORS['warning'])
+                    self.log_text.tag_config("info", foreground="#e2e8f0")
+                    self.log_text.tag_config("success", foreground="#34d399", font=('Consolas', 10, 'bold'))
+                    self.log_text.tag_config("error", foreground="#f87171", font=('Consolas', 10, 'bold'))
+                    self.log_text.tag_config("warning", foreground="#fbbf24")
                     self._log_tags_configured = True
                 
                 # 添加时间戳
@@ -1303,8 +1237,10 @@ class ESP32Flasher:
     def add_flash_record(self, port, chip_type, mac_address, success, error_msg=""):
         """添加烧录记录"""
         import datetime
+        time_full = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        time_short = datetime.datetime.now().strftime('%H:%M:%S')
         record = {
-            'time': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'time': time_full,
             'port': port,
             'chip_type': chip_type,
             'mac_address': mac_address,
@@ -1313,6 +1249,21 @@ class ESP32Flasher:
         }
         self.flash_records.append(record)
         
+        # 更新右侧历史列表
+        status_text = "成功" if success else "失败"
+        tag = 'success' if success else 'fail'
+        
+        def _update_tree():
+            try:
+                self.history_tree.insert("", 0, values=(time_short, port, mac_address, chip_type, status_text), tags=(tag,))
+            except Exception:
+                pass
+                
+        try:
+            self.root.after(0, _update_tree)
+        except Exception:
+            _update_tree()
+            
         # 更新统计
         self.flash_total_count += 1
         if success:
@@ -1402,6 +1353,11 @@ class ESP32Flasher:
             self.flash_fail_count = 0
             self.flash_total_count = 0
             self.update_stats()
+            
+            # 清空历史列表
+            for item in self.history_tree.get_children():
+                self.history_tree.delete(item)
+                
             self.log("已清空所有烧录记录")
 
     def check_dependencies(self):
