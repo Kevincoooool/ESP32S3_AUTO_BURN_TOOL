@@ -7,6 +7,13 @@ import json
 import os
 import subprocess
 import datetime
+import sys
+import io
+
+try:
+    import esptool
+except ImportError:
+    esptool = None
 
 font_size = 12
 
@@ -158,7 +165,7 @@ class ESP32MACReader:
         """检查必要的依赖"""
         try:
             import serial
-            import subprocess
+            import esptool
             return True
         except ImportError as e:
             messagebox.showerror("依赖错误", f"缺少必要的依赖: {str(e)}\n请安装所需的依赖后重试。")
@@ -535,46 +542,51 @@ class ESP32MACReader:
             )
             thread.start()
 
+    def _run_esptool(self, args, log_window):
+        """直接调用 esptool 模块，捕获输出到日志窗口，返回捕获的输出文本"""
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
+
+        class DualOutput:
+            def __init__(self, string_io, log_win):
+                self._sio = string_io
+                self._log_win = log_win
+            def write(self, text):
+                if text and text.strip():
+                    self._sio.write(text)
+                    try:
+                        self._log_win.window.after(0, lambda t=text.strip(): self._log_win.log(t))
+                    except Exception:
+                        pass
+            def flush(self):
+                self._sio.flush()
+
+        redirect = DualOutput(captured, log_window)
+        sys.stdout = redirect
+        sys.stderr = redirect
+        try:
+            esptool.main(args)
+        finally:
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
+        return captured.getvalue()
+
     def read_mac_process(self, port):
-        # 创建新的日志窗口
         log_window = LogWindow(port)
         self.log_windows[port] = log_window
-        # 确保日志窗口显示在前台
         log_window.window.lift()
         log_window.window.focus_force()
-        
-        # 记录开始信息
+
         log_window.log(f"开始从端口 {port} 读取MAC地址...")
         self.log(f"开始从端口 {port} 读取MAC地址...")
-        
-        try:
-            # 获取波特率
-            baudrate = self.baud_combobox.get()
-            
-            # 检测芯片类型
-            log_window.log(f"检测芯片类型 (波特率: {baudrate})...")
-            
-            # 使用子进程执行芯片检测
-            import subprocess
-            cmd = ["python", "-m", "esptool", "--port", port, "--baud", baudrate, "chip_id"]
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-            process = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
-                text=True,
-                startupinfo=startupinfo
-            )
 
-            output = ""
-            for line in process.stdout:
-                log_window.log(line.strip())
-                output += line
-            process.wait()
-            
-            # 从输出中解析芯片类型
+        try:
+            baudrate = self.baud_combobox.get()
+
+            log_window.log(f"检测芯片类型 (波特率: {baudrate})...")
+            output = self._run_esptool(["--port", port, "--baud", baudrate, "chip_id"], log_window)
+
             chip_type = None
             if "Chip is ESP32-S3" in output:
                 chip_type = "ESP32-S3"
@@ -588,73 +600,48 @@ class ESP32MACReader:
                 chip_type = "ESP32-P4"
             elif "Chip is ESP32" in output:
                 chip_type = "ESP32"
-            
+
             if not chip_type:
                 log_window.log("未能识别芯片类型")
                 return
-            
-            log_window.log(f"检测到芯片类型: {chip_type}")
-            
-            # 读取MAC地址
-            log_window.log("读取MAC地址...")
-            cmd = ["python", "-m", "esptool", "--port", port, "--baud", baudrate, "read_mac"]
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-            startupinfo.wShowWindow = subprocess.SW_HIDE
-            process = subprocess.Popen(
-                cmd, 
-                stdout=subprocess.PIPE, 
-                stderr=subprocess.STDOUT, 
-                text=True,
-                startupinfo=startupinfo
-            )
 
-            mac_output = ""
-            for line in process.stdout:
-                log_window.log(line.strip())
-                mac_output += line
-            process.wait()
-            
-            # 从输出中提取MAC地址
+            log_window.log(f"检测到芯片类型: {chip_type}")
+
+            log_window.log("读取MAC地址...")
+            mac_output = self._run_esptool(["--port", port, "--baud", baudrate, "read_mac"], log_window)
+
             mac_address = None
             for line in mac_output.split('\n'):
                 if "MAC:" in line:
                     mac_address = line.split("MAC:")[1].strip()
                     break
-            
+
             if not mac_address:
                 log_window.log("未能读取MAC地址")
                 return
-            
-            # 记录时间
+
             timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            
-            # 检查MAC地址是否已在内存列表中
+
             is_duplicate = False
             for item_id in self.mac_list.get_children():
                 item_values = self.mac_list.item(item_id)['values']
                 if len(item_values) > 1 and item_values[1] == mac_address:
                     is_duplicate = True
                     break
-            
+
             if is_duplicate:
                 log_window.log(f"MAC地址 {mac_address} 已存在，跳过记录")
                 self.log(f"MAC地址 {mac_address} 已存在，跳过记录")
-                # 延迟2秒后关闭窗口
                 self.root.after(2000, lambda: self.close_log_window(port))
                 return
-            
-            # 更新MAC地址列表（在主线程中）
+
             self.root.after(0, lambda: self.update_mac_list(port, mac_address, chip_type, timestamp))
-            
-            # 保存到文件
             self.save_mac_to_file(mac_address, chip_type, timestamp)
-            
+
             log_window.log(f"成功读取MAC地址: {mac_address}")
             self.log(f"端口 {port} 成功读取MAC地址: {mac_address}")
-            # 延迟2秒后关闭窗口，让用户有时间看到结果
             self.root.after(2000, lambda: self.close_log_window(port))
-                
+
         except Exception as e:
             error_msg = f"读取MAC地址失败: {str(e)}"
             log_window.log(error_msg)
