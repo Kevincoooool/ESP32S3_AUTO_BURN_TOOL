@@ -495,31 +495,42 @@ class ESP32Flasher:
         # 创建8个串口选择组
         self.port_comboboxes = []
         self.port_labels = []
-        
+        self.port_erase_buttons = []  # 擦除按钮列表
+
         # 创建所有8个串口（垂直排列）
         for i in range(8):
             frame = ttk.Frame(self.port_frame)
             frame.pack(fill="x", pady=4)
-            
+
             # 添加启用复选框
             enable_var = tk.BooleanVar(value=True)
             enable_check = ttk.Checkbutton(
-                frame, 
+                frame,
                 variable=enable_var,
                 command=lambda: self.save_config()
             )
             enable_check.pack(side="left", padx=(0, 8))
             self.port_enables.append(enable_var)
-            
+
             # 串口标签
             label = ttk.Label(frame, text=f"COM{i+1}:", width=6, font=('Microsoft YaHei UI', font_size))
             label.pack(side="left", padx=(0, 8))
             self.port_labels.append(label)
-            
+
             # 串口下拉框
             combobox = ttk.Combobox(frame, width=20)
             combobox.pack(side="left", fill="x", expand=True, padx=0)
             self.port_comboboxes.append(combobox)
+
+            # 擦除按钮
+            erase_btn = ttk.Button(
+                frame,
+                text="擦除",
+                width=6,
+                command=lambda idx=i: self.erase_single_port(idx)
+            )
+            erase_btn.pack(side="left", padx=(8, 0))
+            self.port_erase_buttons.append(erase_btn)
         
         # 刷新按钮放在底部中间，使用强调样式
         self.refresh_button = ttk.Button(
@@ -720,6 +731,73 @@ class ESP32Flasher:
         
         # 初始化串口列表
         self.refresh_ports()
+
+    def erase_single_port(self, port_index):
+        """擦除单个端口的Flash"""
+        # 获取选中的端口
+        port = self.port_comboboxes[port_index].get()
+        if not port:
+            messagebox.showwarning("警告", f"端口 {port_index + 1} 未选择串口")
+            return
+
+        # 确认擦除操作
+        if not messagebox.askyesno("确认", f"确定要擦除端口 {port} 的Flash吗？"):
+            return
+
+        self.log(f"🗑️ 开始擦除端口 {port} 的Flash...")
+
+        # 创建或获取日志窗口
+        if port not in self.log_windows:
+            self.log_windows[port] = LogWindow(port)
+        log_window = self.log_windows[port]
+        log_window.log(f"开始擦除 {port} 的Flash...")
+
+        # 在新线程中执行擦除
+        thread = threading.Thread(
+            target=self._erase_flash_thread,
+            args=(port, log_window),
+            daemon=True
+        )
+        thread.start()
+
+    def _erase_flash_thread(self, port, log_window):
+        """擦除Flash的线程函数"""
+        try:
+            erase_cmd = [
+                "python", "-m", "esptool",
+                "--port", port,
+                "--baud", self.baud_combobox.get(),
+                "erase-flash"
+            ]
+
+            log_window.log(f"执行命令: {' '.join(erase_cmd)}")
+
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+
+            erase_process = subprocess.Popen(
+                " ".join(erase_cmd),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                startupinfo=startupinfo,
+                shell=True
+            )
+
+            for line in erase_process.stdout:
+                log_window.log(line.strip())
+            erase_process.wait()
+
+            if erase_process.returncode != 0:
+                log_window.log(f"❌ 擦除Flash失败，返回码: {erase_process.returncode}")
+                self.root.after(0, lambda: messagebox.showerror("错误", f"端口 {port} 擦除Flash失败"))
+            else:
+                log_window.log("✅ Flash擦除完成!")
+                self.root.after(0, lambda: self.log(f"✅ 端口 {port} Flash擦除完成"))
+
+        except Exception as e:
+            log_window.log(f"❌ 擦除异常: {str(e)}")
+            self.root.after(0, lambda: messagebox.showerror("错误", f"擦除失败: {str(e)}"))
 
     def refresh_ports(self):
         ports = [port.device for port in list_ports.comports()]
