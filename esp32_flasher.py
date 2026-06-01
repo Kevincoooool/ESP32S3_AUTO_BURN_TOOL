@@ -18,11 +18,18 @@ except ImportError:
     import serial.tools.list_ports
     list_ports = serial.tools.list_ports
 
-# 导入esptool模块（打包后也可用）
+# 导入esptool模块（打包后进程内直接调用，不依赖系统Python）
 try:
     import esptool
 except ImportError:
     esptool = None
+
+
+def get_app_dir():
+    """获取程序所在目录（打包后为 exe 所在目录）"""
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.abspath(__file__))
 
 font_size = 10
 
@@ -282,7 +289,7 @@ class LogWindow:
 class ESP32Flasher:
     def __init__(self, root):
         self.root = root
-        self.config_file = 'config.json'
+        self.config_file = os.path.join(get_app_dir(), 'config.json')
         self.root.title("ESP32 烧录工具")
         self.root.geometry("1350x800")  # 调整为宽屏布局，包含统计面板
         
@@ -304,7 +311,6 @@ class ESP32Flasher:
         # 初始化基本变量
         self.log_windows = {}
         self.flash_cancel_events = {}
-        self.flash_processes = {}
         self.config = {'firmware_paths': [''] * 8, 'firmware_addresses': ['0x0'] * 8}  # 修改为8个
         self.port_enables = []  # 添加串口启用状态列表
         
@@ -712,41 +718,22 @@ class ESP32Flasher:
     def _erase_flash_thread(self, port, log_window):
         """擦除Flash的线程函数"""
         try:
-            erase_cmd = [
-                "python", "-m", "esptool",
+            erase_args = [
                 "--port", port,
                 "--baud", self.baud_combobox.get(),
-                "erase-flash"
+                "erase_flash"
             ]
-
-            log_window.log(f"执行命令: {' '.join(erase_cmd)}")
-
-            startupinfo = subprocess.STARTUPINFO()
-            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-
-            erase_process = subprocess.Popen(
-                " ".join(erase_cmd),
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                startupinfo=startupinfo,
-                shell=True
-            )
-
-            for line in erase_process.stdout:
-                log_window.log(line.strip())
-            erase_process.wait()
-
-            if erase_process.returncode != 0:
-                log_window.log(f"❌ 擦除Flash失败，返回码: {erase_process.returncode}")
-                self.root.after(0, lambda: messagebox.showerror("错误", f"端口 {port} 擦除Flash失败"))
-            else:
-                log_window.log("✅ Flash擦除完成!")
-                self.root.after(0, lambda: self.log(f"✅ 端口 {port} Flash擦除完成"))
-
+            log_window.log(f"执行命令: esptool {' '.join(erase_args)}")
+            self._run_esptool(erase_args, log_window, port=port)
+            log_window.log("✅ Flash擦除完成!")
+            self.root.after(0, lambda: self.log(f"✅ 端口 {port} Flash擦除完成"))
         except Exception as e:
-            log_window.log(f"❌ 擦除异常: {str(e)}")
-            self.root.after(0, lambda: messagebox.showerror("错误", f"擦除失败: {str(e)}"))
+            error_msg = str(e)
+            if "cancelled" in error_msg.lower():
+                log_window.log(f"端口 {port} 擦除已取消")
+            else:
+                log_window.log(f"❌ 擦除Flash失败: {error_msg}")
+                self.root.after(0, lambda: messagebox.showerror("错误", f"端口 {port} 擦除Flash失败: {error_msg}"))
 
     def refresh_ports(self):
         ports = [port.device for port in list_ports.comports()]
@@ -893,64 +880,52 @@ class ESP32Flasher:
             thread.start()
 
     def _run_esptool(self, args, log_window, port=None, cancel_event=None):
-        captured_lines = []
+        """进程内调用 esptool，输出重定向到日志窗口（打包后无需系统 Python）"""
+        if esptool is None:
+            raise RuntimeError("esptool 未安装")
 
-        cmd = [sys.executable, "-m", "esptool"] + list(args)
-        creationflags = 0
-        if os.name == "nt":
-            try:
-                creationflags = subprocess.CREATE_NO_WINDOW
-            except Exception:
-                creationflags = 0
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("cancelled")
 
-        proc = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            creationflags=creationflags
-        )
+        captured = io.StringIO()
+        old_stdout = sys.stdout
+        old_stderr = sys.stderr
 
-        if port:
-            self.flash_processes[port] = proc
+        class DualOutput:
+            def __init__(self, string_io, log_win):
+                self._sio = string_io
+                self._log_win = log_win
 
+            def write(self, text):
+                if not text:
+                    return
+                self._sio.write(text)
+                for line in text.splitlines():
+                    if line.strip():
+                        try:
+                            self._log_win.window.after(0, lambda t=line.strip(): self._log_win.log(t))
+                        except Exception:
+                            pass
+
+            def flush(self):
+                self._sio.flush()
+
+        redirect = DualOutput(captured, log_window)
+        sys.stdout = redirect
+        sys.stderr = redirect
         try:
-            while True:
-                if cancel_event is not None and cancel_event.is_set():
-                    raise RuntimeError("cancelled")
-
-                line = proc.stdout.readline() if proc.stdout else ""
-                if not line:
-                    if proc.poll() is not None:
-                        break
-                    time.sleep(0.01)
-                    continue
-
-                text_line = line.rstrip("\r\n")
-                captured_lines.append(text_line)
-                try:
-                    log_window.window.after(0, lambda t=text_line: log_window.log(t))
-                except Exception:
-                    pass
-
-            rc = proc.wait()
-            if rc != 0:
-                raise RuntimeError(f"esptool exited with code {rc}")
+            esptool.main(list(args))
+        except SystemExit as e:
+            if e.code not in (0, None):
+                raise RuntimeError(f"esptool exited with code {e.code}")
         finally:
-            if port:
-                try:
-                    if self.flash_processes.get(port) is proc:
-                        del self.flash_processes[port]
-                except Exception:
-                    pass
-            try:
-                if proc.stdout:
-                    proc.stdout.close()
-            except Exception:
-                pass
+            sys.stdout = old_stdout
+            sys.stderr = old_stderr
 
-        return "\n".join(captured_lines)
+        if cancel_event is not None and cancel_event.is_set():
+            raise RuntimeError("cancelled")
+
+        return captured.getvalue()
 
     def _release_port(self, port):
         try:
@@ -985,7 +960,11 @@ class ESP32Flasher:
                 raise Exception("cancelled")
 
             log_window.log("检测芯片类型...")
-            output = self._run_esptool(["--port", port, "read-mac"], log_window, port=port, cancel_event=cancel_event)
+            baudrate = self.baud_combobox.get()
+            output = self._run_esptool(
+                ["--port", port, "--baud", baudrate, "read_mac"],
+                log_window, port=port, cancel_event=cancel_event
+            )
 
             output_upper = output.upper()
             if "ESP32-S3" in output_upper or "ESP32S3" in output_upper:
@@ -1075,15 +1054,9 @@ class ESP32Flasher:
                 self.add_flash_record(port, chip_type if chip_type else "Unknown", mac_address, False, error_msg)
 
         finally:
-            # 清理取消标志
             try:
                 if port in self.flash_cancel_events:
                     del self.flash_cancel_events[port]
-            except Exception:
-                pass
-            try:
-                if port in self.flash_processes:
-                    del self.flash_processes[port]
             except Exception:
                 pass
 
@@ -1098,47 +1071,17 @@ class ESP32Flasher:
 
     def stop_flash(self, port=None):
         """停止烧录（port=None 表示停止所有端口）"""
-        if port is None:
-            for p in list(self.flash_cancel_events.keys()):
-                try:
+        ports = list(self.flash_cancel_events.keys()) if port is None else [port]
+        for p in ports:
+            try:
+                if p in self.flash_cancel_events:
                     self.flash_cancel_events[p].set()
-                except Exception:
-                    pass
-                try:
-                    proc = self.flash_processes.get(p)
-                    if proc and proc.poll() is None:
-                        if os.name == "nt":
-                            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                        else:
-                            proc.terminate()
-                except Exception:
-                    pass
-                try:
-                    self._release_port(p)
-                except Exception:
-                    pass
-            return
-
-        try:
-            if port in self.flash_cancel_events:
-                self.flash_cancel_events[port].set()
-        except Exception:
-            pass
-
-        try:
-            proc = self.flash_processes.get(port)
-            if proc and proc.poll() is None:
-                if os.name == "nt":
-                    subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                else:
-                    proc.terminate()
-        except Exception:
-            pass
-
-        try:
-            self._release_port(port)
-        except Exception:
-            pass
+            except Exception:
+                pass
+            try:
+                self._release_port(p)
+            except Exception:
+                pass
 
     def on_main_close(self):
         """主窗口关闭：停止所有烧录并关闭所有日志窗口"""

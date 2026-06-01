@@ -29,25 +29,15 @@ if errorlevel 1 (
     echo.
 )
 
-echo [步骤2] 检查依赖包...
+echo [步骤2] 安装项目依赖（含最新 esptool）...
 echo.
-pip show pyserial > nul 2>&1
+pip install -r requirements.txt
 if errorlevel 1 (
-    echo 正在安装 pyserial...
-    pip install pyserial
-    echo.
-) else (
-    echo pyserial 已安装 ✓
+    echo [错误] 依赖安装失败
+    pause
+    exit /b 1
 )
-
-pip show esptool > nul 2>&1
-if errorlevel 1 (
-    echo 正在安装 esptool...
-    pip install esptool
-    echo.
-) else (
-    echo esptool 已安装 ✓
-)
+python -c "import esptool; print('esptool', esptool.__version__)"
 echo.
 
 echo [步骤3] 清理旧的打包文件...
@@ -70,31 +60,8 @@ echo   - 包含窗口界面
 echo   - 包含 tkinter、serial、esptool 等模块
 echo.
 
-REM 使用PyInstaller打包
-python -m PyInstaller ^
-    --name="esp32_flasher" ^
-    --onefile ^
-    --windowed ^
-    --icon=NONE ^
-    --hidden-import=tkinter ^
-    --hidden-import=tkinter.filedialog ^
-    --hidden-import=tkinter.ttk ^
-    --hidden-import=tkinter.messagebox ^
-    --hidden-import=serial ^
-    --hidden-import=serial.tools ^
-    --hidden-import=serial.tools.list_ports ^
-    --hidden-import=esptool ^
-    --hidden-import=esptool.cmds ^
-    --hidden-import=esptool.loader ^
-    --hidden-import=esptool.util ^
-    --hidden-import=threading ^
-    --hidden-import=subprocess ^
-    --hidden-import=json ^
-    --hidden-import=locale ^
-    --collect-all esptool ^
-    --collect-all serial ^
-    --clean ^
-    esp32_flasher.py
+REM 使用 build_exe.py 打包（含 Python 3.10.0 兼容性修复 + esptool 5.x 依赖）
+python build_exe.py
 
 if errorlevel 1 (
     echo.
