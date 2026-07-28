@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ESP32 烧录工具</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="header">
+        <div class="header-left">
+          <h1>ESP32 批量烧录工具</h1>
+          <span class="subtitle">Tauri 版 · 轻量快速</span>
+        </div>
+        <div class="header-right">
+          <span>成功 <strong id="stat-success" class="success">0</strong></span>
+          <span>失败 <strong id="stat-fail" class="fail">0</strong></span>
+          <span>总计 <strong id="stat-total">0</strong></span>
+          <button id="btn-export" class="btn secondary">导出</button>
+          <button id="btn-clear-records" class="btn secondary">清空</button>
+        </div>
+      </header>
+
+      <div class="main-layout">
+        <section class="panel left-panel">
+          <div class="columns">
+            <div class="column">
+              <h2>串口配置</h2>
+              <div id="port-list" class="slot-list"></div>
+              <button id="btn-refresh-ports" class="btn secondary block">刷新列表</button>
+            </div>
+
+            <div class="column">
+              <h2>固件配置</h2>
+              <div id="firmware-list" class="slot-list"></div>
+            </div>
+          </div>
+
+          <div class="settings-bar">
+            <label>波特率
+              <select id="baudrate"></select>
+            </label>
+            <label>模式
+              <select id="flash-mode"></select>
+            </label>
+            <label>频率
+              <select id="flash-freq"></select>
+            </label>
+            <label class="checkbox"><input type="checkbox" id="erase-flash" /> 烧录前擦除</label>
+            <label class="checkbox"><input type="checkbox" id="auto-flash" /> 自动烧录</label>
+            <button id="btn-start-flash" class="btn primary">开始烧录</button>
+            <button id="btn-stop-all" class="btn danger">停止全部</button>
+          </div>
+
+          <div class="log-section">
+            <div class="log-header">
+              <h2>运行日志</h2>
+              <button id="btn-clear-log" class="btn secondary small">清除</button>
+            </div>
+            <pre id="main-log" class="log-view"></pre>
+          </div>
+        </section>
+
+        <aside class="panel right-panel">
+          <h2>烧录记录</h2>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>时间</th>
+                  <th>端口</th>
+                  <th>MAC</th>
+                  <th>芯片</th>
+                  <th>状态</th>
+                </tr>
+              </thead>
+              <tbody id="history-body"></tbody>
+            </table>
+          </div>
+
+          <h2 class="port-logs-title">端口日志</h2>
+          <div id="port-log-tabs" class="port-log-tabs"></div>
+          <pre id="port-log" class="log-view port-log-view"></pre>
+        </aside>
+      </div>
+
+      <footer class="footer">
+        <span id="status-bar">就绪</span>
+        <span id="esptool-info"></span>
+      </footer>
+    </div>
+  </body>
+</html>
