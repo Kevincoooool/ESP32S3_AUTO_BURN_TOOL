@@ -10,85 +10,131 @@
   <body>
     <div class="app">
       <header class="header">
-        <div class="header-left">
-          <h1>ESP32 批量烧录工具</h1>
-          <span class="subtitle">Tauri 版 · 轻量快速</span>
+        <div class="brand">
+          <div class="brand-icon">⚡</div>
+          <div>
+            <h1>ESP32 批量烧录工具</h1>
+            <p class="subtitle">Tauri 版 · 多路并行 · 轻量快速</p>
+          </div>
         </div>
-        <div class="header-right">
-          <span>成功 <strong id="stat-success" class="success">0</strong></span>
-          <span>失败 <strong id="stat-fail" class="fail">0</strong></span>
-          <span>总计 <strong id="stat-total">0</strong></span>
-          <button id="btn-export" class="btn secondary">导出</button>
-          <button id="btn-clear-records" class="btn secondary">清空</button>
+        <div class="stat-cards">
+          <div class="stat-card success-card">
+            <span class="stat-label">成功</span>
+            <strong id="stat-success">0</strong>
+          </div>
+          <div class="stat-card fail-card">
+            <span class="stat-label">失败</span>
+            <strong id="stat-fail">0</strong>
+          </div>
+          <div class="stat-card total-card">
+            <span class="stat-label">总计</span>
+            <strong id="stat-total">0</strong>
+          </div>
+          <div class="stat-actions">
+            <button id="btn-export" class="btn ghost">导出</button>
+            <button id="btn-clear-records" class="btn ghost">清空</button>
+          </div>
         </div>
       </header>
 
       <div class="main-layout">
-        <section class="panel left-panel">
-          <div class="columns">
-            <div class="column">
-              <h2>串口配置</h2>
+        <section class="workspace">
+          <div class="config-grid">
+            <div class="card">
+              <div class="card-head">
+                <h2>串口配置</h2>
+                <button id="btn-refresh-ports" class="btn ghost small">刷新</button>
+              </div>
+              <div class="slot-head port-head">
+                <span></span><span>#</span><span>端口</span><span></span><span></span>
+              </div>
               <div id="port-list" class="slot-list"></div>
-              <button id="btn-refresh-ports" class="btn secondary block">刷新列表</button>
             </div>
 
-            <div class="column">
-              <h2>固件配置</h2>
+            <div class="card">
+              <div class="card-head">
+                <h2>固件配置</h2>
+              </div>
+              <div class="slot-head firmware-head">
+                <span></span><span>#</span><span>地址</span><span>固件路径</span><span></span>
+              </div>
               <div id="firmware-list" class="slot-list"></div>
             </div>
           </div>
 
-          <div class="settings-bar">
-            <label>波特率
-              <select id="baudrate"></select>
-            </label>
-            <label>模式
-              <select id="flash-mode"></select>
-            </label>
-            <label>频率
-              <select id="flash-freq"></select>
-            </label>
-            <label class="checkbox"><input type="checkbox" id="erase-flash" /> 烧录前擦除</label>
-            <label class="checkbox"><input type="checkbox" id="auto-flash" /> 自动烧录</label>
-            <button id="btn-start-flash" class="btn primary">开始烧录</button>
-            <button id="btn-stop-all" class="btn danger">停止全部</button>
+          <div class="card settings-card">
+            <div class="card-head">
+              <h2>烧录参数</h2>
+            </div>
+            <div class="settings-bar">
+              <div class="setting-group">
+                <label>波特率<select id="baudrate"></select></label>
+                <label>模式<select id="flash-mode"></select></label>
+                <label>频率<select id="flash-freq"></select></label>
+              </div>
+              <div class="setting-group toggles">
+                <label class="toggle"><input type="checkbox" id="erase-flash" /><span>烧录前擦除</span></label>
+                <label class="toggle"><input type="checkbox" id="auto-flash" /><span>自动烧录</span></label>
+              </div>
+              <div class="setting-group actions">
+                <button id="btn-start-flash" class="btn primary">开始烧录</button>
+                <button id="btn-stop-all" class="btn danger">停止全部</button>
+              </div>
+            </div>
           </div>
 
-          <div class="log-section">
-            <div class="log-header">
+          <div class="card log-card">
+            <div class="card-head">
               <h2>运行日志</h2>
-              <button id="btn-clear-log" class="btn secondary small">清除</button>
+              <button id="btn-clear-log" class="btn ghost small">清除</button>
             </div>
-            <pre id="main-log" class="log-view"></pre>
+            <div id="main-log" class="log-view"></div>
           </div>
         </section>
 
-        <aside class="panel right-panel">
-          <h2>烧录记录</h2>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>时间</th>
-                  <th>端口</th>
-                  <th>MAC</th>
-                  <th>芯片</th>
-                  <th>状态</th>
-                </tr>
-              </thead>
-              <tbody id="history-body"></tbody>
-            </table>
+        <aside class="sidebar">
+          <div class="card history-card">
+            <div class="card-head">
+              <h2>烧录记录</h2>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>端口</th>
+                    <th>MAC</th>
+                    <th>芯片</th>
+                    <th>状态</th>
+                  </tr>
+                </thead>
+                <tbody id="history-body">
+                  <tr id="history-empty">
+                    <td colspan="5" class="empty-cell">暂无记录</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
           </div>
 
-          <h2 class="port-logs-title">端口日志</h2>
-          <div id="port-log-tabs" class="port-log-tabs"></div>
-          <pre id="port-log" class="log-view port-log-view"></pre>
+          <div class="card port-log-card">
+            <div class="card-head">
+              <h2>端口日志</h2>
+            </div>
+            <div id="port-log-tabs" class="port-log-tabs">
+              <span class="tab-placeholder">烧录开始后显示</span>
+            </div>
+            <div id="port-log" class="log-view port-log-view"></div>
+          </div>
         </aside>
       </div>
 
       <footer class="footer">
-        <span id="status-bar">就绪</span>
-        <span id="esptool-info"></span>
+        <div class="status-pill">
+          <span id="status-dot" class="status-dot ready"></span>
+          <span id="status-bar">就绪</span>
+        </div>
+        <span id="esptool-info" class="esptool-info"></span>
       </footer>
     </div>
   </body>

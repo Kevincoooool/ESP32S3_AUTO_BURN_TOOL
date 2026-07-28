@@ -23,7 +23,10 @@ let records: FlashRecord[] = [];
 let successCount = 0;
 let failCount = 0;
 let activePortLog = "";
+let busyPortCount = 0;
 const portLogs = new Map<string, string[]>();
+const flashingPorts = new Set<string>();
+const savedPortSelections: string[] = Array(SLOT_COUNT).fill("");
 
 const els = {
   portList: document.getElementById("port-list")!,
@@ -37,10 +40,12 @@ const els = {
   portLog: document.getElementById("port-log")!,
   portLogTabs: document.getElementById("port-log-tabs")!,
   historyBody: document.getElementById("history-body")!,
+  historyEmpty: document.getElementById("history-empty")!,
   statSuccess: document.getElementById("stat-success")!,
   statFail: document.getElementById("stat-fail")!,
   statTotal: document.getElementById("stat-total")!,
   statusBar: document.getElementById("status-bar")!,
+  statusDot: document.getElementById("status-dot")!,
   esptoolInfo: document.getElementById("esptool-info")!,
 };
 
@@ -52,9 +57,30 @@ function nowTime(short = false): string {
   return d.toLocaleString("zh-CN", { hour12: false });
 }
 
+function basename(path: string): string {
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
+function logLevel(message: string): string {
+  if (/错误|失败|Error/i.test(message)) return "error";
+  if (/警告|Warning/i.test(message)) return "warning";
+  if (/成功|完成|✅/i.test(message)) return "success";
+  return "info";
+}
+
 function appendMainLog(message: string) {
-  els.mainLog.textContent += `[${nowTime(true)}] ${message}\n`;
+  const line = document.createElement("div");
+  line.className = `log-line ${logLevel(message)}`;
+  line.innerHTML = `<span class="ts">[${nowTime(true)}]</span>${message}`;
+  els.mainLog.appendChild(line);
   els.mainLog.scrollTop = els.mainLog.scrollHeight;
+}
+
+function appendPortLogLine(text: string): HTMLElement {
+  const line = document.createElement("div");
+  line.className = `log-line ${logLevel(text)}`;
+  line.textContent = text;
+  return line;
 }
 
 function appendPortLog(port: string, line: string) {
@@ -71,9 +97,17 @@ function appendPortLog(port: string, line: string) {
 
 function renderPortLogTabs() {
   els.portLogTabs.innerHTML = "";
+  if (portLogs.size === 0) {
+    const ph = document.createElement("span");
+    ph.className = "tab-placeholder";
+    ph.textContent = "烧录开始后显示";
+    els.portLogTabs.appendChild(ph);
+    return;
+  }
   for (const port of portLogs.keys()) {
     const btn = document.createElement("button");
-    btn.className = `port-tab${port === activePortLog ? " active" : ""}`;
+    const flashing = flashingPorts.has(port);
+    btn.className = `port-tab${port === activePortLog ? " active" : ""}${flashing ? " flashing" : ""}`;
     btn.textContent = port;
     btn.onclick = () => {
       activePortLog = port;
@@ -85,13 +119,51 @@ function renderPortLogTabs() {
 }
 
 function renderActivePortLog() {
+  els.portLog.innerHTML = "";
   const lines = portLogs.get(activePortLog) ?? [];
-  els.portLog.textContent = lines.join("\n");
+  if (!lines.length) {
+    els.portLog.innerHTML = '<div class="log-line info">等待日志输出...</div>';
+    return;
+  }
+  for (const text of lines) {
+    els.portLog.appendChild(appendPortLogLine(text));
+  }
   els.portLog.scrollTop = els.portLog.scrollHeight;
 }
 
-function setStatus(text: string) {
+function setStatus(text: string, state: "ready" | "busy" | "error" = "ready") {
   els.statusBar.textContent = text;
+  els.statusDot.className = `status-dot ${state}`;
+}
+
+function updateBusyState() {
+  if (busyPortCount > 0) {
+    setStatus(`烧录中 (${busyPortCount} 路)...`, "busy");
+  } else {
+    setStatus("就绪", "ready");
+  }
+  updatePortRowStates();
+}
+
+function updatePortRowStates() {
+  const rows = els.portList.querySelectorAll<HTMLElement>(".port-row");
+  rows.forEach((row) => {
+    const select = row.querySelector<HTMLSelectElement>("select[data-port-index]");
+    const port = select?.value ?? "";
+    row.classList.toggle("flashing", !!port && flashingPorts.has(port));
+  });
+}
+
+function markPortBusy(ports: string[]) {
+  for (const p of ports) flashingPorts.add(p);
+  busyPortCount += ports.length;
+  updateBusyState();
+}
+
+function markPortDone(port: string) {
+  flashingPorts.delete(port);
+  busyPortCount = Math.max(0, busyPortCount - 1);
+  updateBusyState();
 }
 
 function updateStats() {
@@ -113,6 +185,13 @@ function fillSelect(select: HTMLSelectElement, values: string[], selected?: stri
   }
 }
 
+function capturePortSelections() {
+  const selects = els.portList.querySelectorAll<HTMLSelectElement>("select[data-port-index]");
+  selects.forEach((sel, i) => {
+    savedPortSelections[i] = sel.value;
+  });
+}
+
 async function persistConfig() {
   readConfigFromUi();
   await invoke("set_config", { config });
@@ -125,10 +204,9 @@ function readConfigFromUi() {
   config.eraseFlash = els.eraseFlash.checked;
   config.autoFlash = els.autoFlash.checked;
 
-  const portSelects = els.portList.querySelectorAll<HTMLSelectElement>("select[data-port-index]");
   const portChecks = els.portList.querySelectorAll<HTMLInputElement>("input[data-port-enable]");
-  portSelects.forEach((_sel, i) => {
-    config.portEnables[i] = portChecks[i]?.checked ?? true;
+  portChecks.forEach((chk, i) => {
+    config.portEnables[i] = chk.checked;
   });
 
   const fwPaths = els.firmwareList.querySelectorAll<HTMLInputElement>("input[data-fw-path]");
@@ -152,26 +230,28 @@ function applyConfigToUi() {
 }
 
 function renderPortRows() {
+  capturePortSelections();
   els.portList.innerHTML = "";
   for (let i = 0; i < SLOT_COUNT; i++) {
     const row = document.createElement("div");
-    row.className = "slot-row";
+    row.className = "slot-row port-row";
 
     const enable = document.createElement("input");
     enable.type = "checkbox";
     enable.checked = config.portEnables[i] ?? true;
     enable.dataset.portEnable = "1";
+    enable.title = "批量烧录时启用";
     enable.onchange = () => void persistConfig();
 
     const label = document.createElement("label");
     label.className = "index";
-    label.textContent = `#${i + 1}`;
+    label.textContent = `${i + 1}`;
 
     const select = document.createElement("select");
     select.dataset.portIndex = String(i);
     const empty = document.createElement("option");
     empty.value = "";
-    empty.textContent = "(未选择)";
+    empty.textContent = "未选择";
     select.appendChild(empty);
     for (const port of availablePorts) {
       const opt = document.createElement("option");
@@ -179,23 +259,28 @@ function renderPortRows() {
       opt.textContent = port;
       select.appendChild(opt);
     }
-    const preferred = availablePorts[i] ?? "";
-    select.value = preferred;
+    const saved = savedPortSelections[i];
+    if (saved && availablePorts.includes(saved)) {
+      select.value = saved;
+    } else if (availablePorts[i]) {
+      select.value = availablePorts[i];
+    }
     select.onchange = () => void persistConfig();
 
     const flashBtn = document.createElement("button");
-    flashBtn.className = "btn secondary small flash-btn";
+    flashBtn.className = "btn small flash-btn";
     flashBtn.textContent = "烧录";
     flashBtn.onclick = () => void flashPort(i);
 
     const eraseBtn = document.createElement("button");
-    eraseBtn.className = "btn secondary small";
+    eraseBtn.className = "btn ghost small erase-btn";
     eraseBtn.textContent = "擦除";
     eraseBtn.onclick = () => void erasePort(i);
 
     row.append(enable, label, select, flashBtn, eraseBtn);
     els.portList.appendChild(row);
   }
+  updatePortRowStates();
 }
 
 function renderFirmwareRows() {
@@ -212,7 +297,7 @@ function renderFirmwareRows() {
 
     const label = document.createElement("label");
     label.className = "index";
-    label.textContent = `#${i + 1}`;
+    label.textContent = `${i + 1}`;
 
     const addr = document.createElement("input");
     addr.type = "text";
@@ -220,15 +305,20 @@ function renderFirmwareRows() {
     addr.dataset.fwAddr = "1";
     addr.onchange = () => void persistConfig();
 
+    const fullPath = config.firmwarePaths[i] ?? "";
     const path = document.createElement("input");
     path.type = "text";
-    path.value = config.firmwarePaths[i] ?? "";
+    path.value = fullPath;
     path.dataset.fwPath = "1";
-    path.placeholder = "固件路径";
+    path.placeholder = "选择 .bin 固件";
+    path.title = fullPath;
     path.onchange = () => void persistConfig();
+    path.oninput = () => {
+      path.title = path.value;
+    };
 
     const browse = document.createElement("button");
-    browse.className = "btn secondary small";
+    browse.className = "btn ghost small";
     browse.textContent = "浏览";
     browse.onclick = () => void browseFirmware(i);
 
@@ -247,6 +337,7 @@ async function browseFirmware(index: number) {
   config.firmwareEnables[index] = true;
   renderFirmwareRows();
   await persistConfig();
+  appendMainLog(`已选择固件 #${index + 1}: ${basename(selected)}`);
 }
 
 function getSelectedPorts(): string[] {
@@ -277,9 +368,10 @@ function getSelectedFirmwares(): FirmwareItem[] {
 }
 
 async function refreshPorts() {
+  capturePortSelections();
   availablePorts = await invoke<string[]>("list_ports");
   renderPortRows();
-  appendMainLog(`刷新串口列表: ${availablePorts.join(", ") || "(无)"}`);
+  appendMainLog(`刷新串口: ${availablePorts.join(", ") || "无"}`);
 }
 
 async function startFlash(ports?: string[]) {
@@ -294,7 +386,7 @@ async function startFlash(ports?: string[]) {
     appendMainLog("错误: 请选择至少一个固件");
     return;
   }
-  setStatus("烧录中...");
+  markPortBusy(targetPorts);
   appendMainLog(`开始烧录: ${targetPorts.join(", ")}`);
   await invoke("start_flash", {
     ports: targetPorts,
@@ -316,8 +408,8 @@ async function flashPort(index: number) {
     appendMainLog("错误: 请选择至少一个固件");
     return;
   }
-  setStatus("烧录中...");
-  appendMainLog(`开始单独烧录 ${port}...`);
+  markPortBusy([port]);
+  appendMainLog(`单独烧录 ${port}...`);
   await invoke("start_flash", {
     ports: [port],
     firmwares,
@@ -333,15 +425,23 @@ async function erasePort(index: number) {
     appendMainLog(`错误: 端口 #${index + 1} 未选择串口`);
     return;
   }
-  appendMainLog(`开始擦除 ${port}...`);
+  appendMainLog(`擦除 ${port}...`);
   await invoke("erase_single_port", { port, baudrate: config.baudrate });
 }
 
+function hideHistoryEmpty() {
+  els.historyEmpty?.remove();
+}
+
 function addRecord(event: FlashCompleteEvent) {
+  markPortDone(event.port);
+
   if (event.chipType === "Erase") {
     appendMainLog(event.success ? `${event.port} 擦除完成` : `${event.port} 擦除失败: ${event.errorMsg}`);
     return;
   }
+
+  hideHistoryEmpty();
 
   const record: FlashRecord = {
     time: nowTime(),
@@ -362,14 +462,18 @@ function addRecord(event: FlashCompleteEvent) {
     <td>${record.port}</td>
     <td>${record.macAddress}</td>
     <td>${record.chipType}</td>
-    <td class="${record.success ? "status-ok" : "status-fail"}">${record.success ? "成功" : "失败"}</td>
+    <td><span class="status-badge ${record.success ? "ok" : "fail"}">${record.success ? "成功" : "失败"}</span></td>
   `;
   els.historyBody.prepend(tr);
 
   appendMainLog(
-    `${event.port} ${record.chipType} ${record.macAddress} - ${record.success ? "成功" : "失败"}`
+    `${event.port} · ${record.chipType} · ${record.macAddress} — ${record.success ? "成功" : "失败"}`
   );
-  setStatus(record.success ? "完成" : "错误");
+  if (!event.success) {
+    setStatus("存在失败", "error");
+  } else if (busyPortCount === 0) {
+    setStatus("完成", "ready");
+  }
 }
 
 async function exportRecords() {
@@ -384,7 +488,7 @@ async function exportRecords() {
   if (!path) return;
 
   await invoke("export_records", { path, records });
-  appendMainLog(`记录已导出到: ${path}`);
+  appendMainLog(`记录已导出: ${path}`);
 }
 
 function clearRecords() {
@@ -396,8 +500,12 @@ function clearRecords() {
   successCount = 0;
   failCount = 0;
   els.historyBody.innerHTML = "";
+  const empty = document.createElement("tr");
+  empty.id = "history-empty";
+  empty.innerHTML = '<td colspan="5" class="empty-cell">暂无记录</td>';
+  els.historyBody.appendChild(empty);
   updateStats();
-  appendMainLog("已清空所有烧录记录");
+  appendMainLog("已清空烧录记录");
 }
 
 async function handleAutoFlash(newPorts: string[]) {
@@ -405,7 +513,7 @@ async function handleAutoFlash(newPorts: string[]) {
   const inserted = newPorts.filter((p) => !knownPorts.has(p));
   if (!inserted.length) return;
 
-  appendMainLog(`检测到新端口: ${inserted.join(", ")}，1 秒后自动烧录...`);
+  appendMainLog(`新端口 ${inserted.join(", ")}，1 秒后自动烧录`);
   setTimeout(() => void startFlash(inserted), 1000);
 }
 
@@ -425,7 +533,7 @@ async function init() {
 
   try {
     const esptool = await invoke<string>("check_esptool");
-    els.esptoolInfo.textContent = `esptool: ${esptool}`;
+    els.esptoolInfo.textContent = esptool;
   } catch (e) {
     els.esptoolInfo.textContent = String(e);
     appendMainLog(String(e));
@@ -433,7 +541,7 @@ async function init() {
 
   await listen<FlashLogEvent>("flash-log", (event) => {
     appendPortLog(event.payload.port, event.payload.line);
-    if (event.payload.line.includes("错误") || event.payload.line.includes("失败")) {
+    if (/错误|失败|Error/i.test(event.payload.line)) {
       appendMainLog(`[${event.payload.port}] ${event.payload.line}`);
     }
   });
@@ -445,6 +553,7 @@ async function init() {
   await listen<PortsChangedEvent>("ports-changed", async (event) => {
     const ports = event.payload.ports;
     await handleAutoFlash(ports);
+    capturePortSelections();
     availablePorts = ports;
     renderPortRows();
     knownPorts = new Set(ports);
@@ -452,10 +561,16 @@ async function init() {
 
   document.getElementById("btn-refresh-ports")!.onclick = () => void refreshPorts();
   document.getElementById("btn-start-flash")!.onclick = () => void startFlash();
-  document.getElementById("btn-stop-all")!.onclick = () => void invoke("stop_flash", { port: null });
+  document.getElementById("btn-stop-all")!.onclick = () => {
+    void invoke("stop_flash", { port: null });
+    flashingPorts.clear();
+    busyPortCount = 0;
+    updateBusyState();
+    appendMainLog("已发送停止全部指令");
+  };
   document.getElementById("btn-clear-log")!.onclick = () => {
-    els.mainLog.textContent = "";
-    setStatus("就绪");
+    els.mainLog.innerHTML = "";
+    setStatus("就绪", "ready");
   };
   document.getElementById("btn-export")!.onclick = () => void exportRecords();
   document.getElementById("btn-clear-records")!.onclick = () => clearRecords();
@@ -466,8 +581,8 @@ async function init() {
   els.eraseFlash.onchange = () => void persistConfig();
   els.autoFlash.onchange = () => void persistConfig();
 
-  appendMainLog("Tauri 版 ESP32 烧录工具已启动");
-  setStatus("就绪");
+  appendMainLog("ESP32 烧录工具已就绪");
+  setStatus("就绪", "ready");
 }
 
 window.addEventListener("DOMContentLoaded", () => {
