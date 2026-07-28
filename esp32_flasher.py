@@ -721,7 +721,7 @@ class ESP32Flasher:
             erase_args = [
                 "--port", port,
                 "--baud", self.baud_combobox.get(),
-                "erase_flash"
+                "erase-flash"
             ]
             log_window.log(f"执行命令: esptool {' '.join(erase_args)}")
             self._run_esptool(erase_args, log_window, port=port)
@@ -962,7 +962,7 @@ class ESP32Flasher:
             log_window.log("检测芯片类型...")
             baudrate = self.baud_combobox.get()
             output = self._run_esptool(
-                ["--port", port, "--baud", baudrate, "read_mac"],
+                ["--port", port, "--baud", baudrate, "read-mac"],
                 log_window, port=port, cancel_event=cancel_event
             )
 
@@ -1009,7 +1009,7 @@ class ESP32Flasher:
                 self._run_esptool([
                     "--port", port,
                     "--baud", self.baud_combobox.get(),
-                    "erase_flash"
+                    "erase-flash"
                 ], log_window, port=port, cancel_event=cancel_event)
                 log_window.log("Flash擦除完成!")
 
@@ -1019,15 +1019,15 @@ class ESP32Flasher:
                 flash_args = [
                     "--port", port,
                     "--baud", self.baud_combobox.get(),
-                    "--before", "default_reset",
-                    "--after", "hard_reset"
+                    "--before", "default-reset",
+                    "--after", "hard-reset"
                 ]
                 if self.flash_mode_cb.get() != 'keep':
-                    flash_args.extend(["--flash_mode", self.flash_mode_cb.get()])
+                    flash_args.extend(["--flash-mode", self.flash_mode_cb.get()])
                 if self.flash_freq_cb.get() != 'keep':
-                    flash_args.extend(["--flash_freq", self.flash_freq_cb.get()])
+                    flash_args.extend(["--flash-freq", self.flash_freq_cb.get()])
                 
-                flash_args.extend(["write_flash", address, firmware])
+                flash_args.extend(["write-flash", address, firmware])
 
                 log_window.log(f"执行命令: esptool {' '.join(flash_args)}")
                 self._run_esptool(flash_args, log_window, port=port, cancel_event=cancel_event)
