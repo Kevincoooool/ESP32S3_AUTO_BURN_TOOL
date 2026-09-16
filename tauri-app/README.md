@@ -1,7 +1,10 @@
-# Tauri + Vanilla TS
+# ESP32 烧录工具 — Tauri 应用
 
-This template should help get you started developing with Tauri in vanilla HTML, CSS and Typescript.
+主项目说明见 [README.md](../README.md)。
 
-## Recommended IDE Setup
-
-- [VS Code](https://code.visualstudio.com/) + [Tauri](https://marketplace.visualstudio.com/items?itemName=tauri-apps.tauri-vscode) + [rust-analyzer](https://marketplace.visualstudio.com/items?itemName=rust-lang.rust-analyzer)
+```bat
+npm install
+dev_tauri.bat      # 开发
+build_tauri.bat    # 打包 setup.exe
+clean.bat          # 清理（在仓库根目录）
+```

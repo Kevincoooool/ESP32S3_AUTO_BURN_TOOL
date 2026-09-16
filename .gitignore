@@ -1,8 +1,6 @@
 build/
 dist/
-*.spec
 .history
-*.pyc
 config.json
 tauri-app/node_modules/
 tauri-app/dist/

@@ -1,9 +1,16 @@
 use crate::config::AppConfig;
-use crate::esptool_runner::{detect_chip_and_mac, erase_flash, serial_post_flash_reset, write_firmwares};
+use crate::flasher::{
+    chip_and_mac, emit_device_info, erase_flash, finish_and_reset, is_cancel_error, open_flasher,
+    read_device_info, serial_post_flash_reset, write_all_firmwares, FLASH_CANCELLED,
+};
+use espflash::flasher::Flasher;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::thread::sleep;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter, Manager};
 
 #[derive(Clone, Serialize)]
@@ -75,7 +82,35 @@ impl FlashManager {
         }
 
         std::thread::spawn(move || {
-            let result = run_flash_job(&app, &port, &firmwares, &config, cancel.clone());
+            let job = catch_unwind(AssertUnwindSafe(|| {
+                run_flash_job(&app, &port, &firmwares, &config, cancel.clone())
+            }));
+
+            let result = match job {
+                Ok(event) => event,
+                Err(payload) => {
+                    let panic_msg = panic_message(&payload);
+                    if panic_msg.contains(FLASH_CANCELLED) {
+                        emit_log(&app, &port, "烧录已停止，正在释放串口...");
+                        sleep(Duration::from_millis(200));
+                        if let Err(e) = serial_post_flash_reset(&port) {
+                            emit_log(&app, &port, &format!("释放串口警告: {e}"));
+                        } else {
+                            emit_log(&app, &port, "串口已释放");
+                        }
+                        FlashCompleteEvent {
+                            port: port.clone(),
+                            success: false,
+                            chip_type: "Unknown".into(),
+                            mac_address: "Unknown".into(),
+                            error_msg: "cancelled".into(),
+                        }
+                    } else {
+                        resume_unwind(payload);
+                    }
+                }
+            };
+
             {
                 let state = app.state::<FlashManager>();
                 let mut flags = state.cancel_flags.lock().unwrap();
@@ -84,6 +119,14 @@ impl FlashManager {
             let _ = app.emit("flash-complete", result);
         });
     }
+}
+
+fn panic_message(payload: &Box<dyn std::any::Any + Send>) -> String {
+    payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "unknown panic".to_string())
 }
 
 fn emit_log(app: &AppHandle, port: &str, line: &str) {
@@ -104,6 +147,28 @@ fn cancelled_event(port: &str, chip_type: String, mac_address: String) -> FlashC
         mac_address,
         error_msg: "cancelled".into(),
     }
+}
+
+fn release_flasher_and_port(flasher: Flasher, port: &str, emit: &dyn Fn(&str)) {
+    emit("烧录已停止，正在释放串口...");
+    drop(flasher);
+    sleep(Duration::from_millis(200));
+    if let Err(e) = serial_post_flash_reset(port) {
+        emit(&format!("释放串口警告: {e}"));
+    } else {
+        emit("串口已释放");
+    }
+}
+
+fn stop_with_cleanup(
+    port: &str,
+    flasher: Flasher,
+    chip_type: String,
+    mac_address: String,
+    emit: &dyn Fn(&str),
+) -> FlashCompleteEvent {
+    release_flasher_and_port(flasher, port, emit);
+    cancelled_event(port, chip_type, mac_address)
 }
 
 fn cleanup_port(port: &str, emit: &dyn Fn(&str)) {
@@ -149,34 +214,53 @@ fn run_flash_job(
     }
 
     emit("Connecting...");
-    match detect_chip_and_mac(app, port, config.baudrate, cancel.clone(), &emit) {
-        Ok((chip, mac)) => {
+    let mut flasher = match open_flasher(port, config.baudrate, cancel.clone()) {
+        Ok(f) => f,
+        Err(e) => {
+            let msg = if is_cancel_error(&e, &cancel) {
+                "cancelled".to_string()
+            } else {
+                e
+            };
+            return fail_with_cleanup(port, chip_type, mac_address, msg, &emit);
+        }
+    };
+
+    if cancel.load(Ordering::Relaxed) {
+        return stop_with_cleanup(port, flasher, chip_type, mac_address, &emit);
+    }
+
+    match read_device_info(&mut flasher) {
+        Ok(info) => {
+            let (chip, mac) = chip_and_mac(&info);
             chip_type = chip;
             mac_address = mac;
-            emit(&format!("检测到芯片类型: {chip_type}"));
-            if mac_address != "Unknown" {
-                emit(&format!("MAC地址: {mac_address}"));
-            }
+            emit_device_info(&info, &emit);
         }
-        Err(e) if e == "cancelled" => {
-            return cancelled_event(port, chip_type, mac_address);
+        Err(e) if is_cancel_error(&e, &cancel) => {
+            return stop_with_cleanup(port, flasher, chip_type, mac_address, &emit);
         }
         Err(e) => {
+            drop(flasher);
             return fail_with_cleanup(port, chip_type, mac_address, e, &emit);
         }
     }
 
     if config.erase_flash {
         if cancel.load(Ordering::Relaxed) {
-            return cancelled_event(port, chip_type, mac_address);
+            return stop_with_cleanup(port, flasher, chip_type, mac_address, &emit);
         }
         emit("正在擦除 Flash...");
-        if let Err(e) = erase_flash(app, port, config.baudrate, cancel.clone(), &emit) {
-            let msg = if e == "cancelled" {
+        if let Err(e) = erase_flash(&mut flasher) {
+            let msg = if is_cancel_error(&e, &cancel) {
                 "cancelled".to_string()
             } else {
                 format!("擦除失败: {e}")
             };
+            if msg == "cancelled" {
+                return stop_with_cleanup(port, flasher, chip_type, mac_address, &emit);
+            }
+            drop(flasher);
             return fail_with_cleanup(port, chip_type, mac_address, msg, &emit);
         }
         emit("Flash 擦除完成!");
@@ -188,35 +272,23 @@ fn run_flash_job(
         .collect();
 
     emit(&format!(
-        "执行命令: esptool write_flash ({} 个文件)",
+        "write_flash ({} 个文件)",
         firmware_items.len()
     ));
-    if let Err(e) = write_firmwares(
-        app,
-        port,
-        config.baudrate,
-        &firmware_items,
-        &config.flash_mode,
-        &config.flash_freq,
-        cancel.clone(),
-        &emit,
-    ) {
-        let msg = if e == "cancelled" {
-            "cancelled".to_string()
-        } else {
-            e
-        };
-        return fail_with_cleanup(port, chip_type, mac_address, msg, &emit);
+    if let Err(e) = write_all_firmwares(&mut flasher, &firmware_items, cancel.clone(), &emit) {
+        if e == "cancelled" || is_cancel_error(&e, &cancel) {
+            return stop_with_cleanup(port, flasher, chip_type, mac_address, &emit);
+        }
+        drop(flasher);
+        return fail_with_cleanup(port, chip_type, mac_address, e, &emit);
     }
 
     for item in firmwares {
         emit(&format!("固件 {} 烧录完成!", item.path));
     }
 
-    if let Err(e) = serial_post_flash_reset(port) {
+    if let Err(e) = finish_and_reset(flasher, port, &emit) {
         emit(&format!("复位警告: {e}"));
-    } else {
-        emit("hard resetting via RTS/DTR...");
     }
 
     emit(&format!("端口 {port} 所有固件烧录完成!"));
@@ -231,15 +303,16 @@ fn run_flash_job(
 
 pub fn erase_port(app: AppHandle, port: String, baudrate: u32) {
     std::thread::spawn(move || {
-        let cancel = Arc::new(AtomicBool::new(false));
         let emit = |line: &str| emit_log(&app, &port, line);
         emit(&format!("开始擦除端口 {port} 的 Flash..."));
 
         let result = (|| {
             emit("Connecting...");
+            let cancel = Arc::new(AtomicBool::new(false));
+            let mut flasher = open_flasher(&port, baudrate, cancel)?;
             emit("erase_flash");
-            erase_flash(&app, &port, baudrate, cancel.clone(), &emit)?;
-            serial_post_flash_reset(&port)?;
+            erase_flash(&mut flasher)?;
+            finish_and_reset(flasher, &port, &emit)?;
             emit("Flash 擦除完成!");
             Ok::<(), String>(())
         })();

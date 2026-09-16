@@ -149,14 +149,6 @@ function handlePortLogProgress(port: string, line: string) {
   }
 }
 
-function clearAllPortProgress() {
-  portProgressState.clear();
-  for (const slot of els.portList.querySelectorAll<HTMLElement>(".port-slot")) {
-    const sel = slot.querySelector<HTMLSelectElement>("select[data-port-index]");
-    if (sel?.value) applyPortProgressUi(sel.value);
-  }
-}
-
 const els = {
   portList: document.getElementById("port-list")!,
   firmwareList: document.getElementById("firmware-list")!,
@@ -682,6 +674,19 @@ function hideHistoryEmpty() {
 
 function addRecord(event: FlashCompleteEvent) {
   const isErase = event.chipType === "Erase";
+  const isCancelled = event.errorMsg === "cancelled";
+
+  if (isCancelled) {
+    markPortDone(event.port, false, false);
+    setPortProgress(event.port, { indeterminate: false, label: "已停止", visible: true });
+    hidePortProgress(event.port, 1500);
+    appendMainLog(`${event.port} 烧录已停止，串口已释放`);
+    if (busyPortCount === 0) {
+      setStatus("就绪", "ready");
+    }
+    return;
+  }
+
   markPortDone(event.port, event.success, isErase);
 
   if (isErase) {
@@ -819,11 +824,10 @@ async function init() {
   document.getElementById("btn-start-flash")!.onclick = () => void startFlash();
   document.getElementById("btn-stop-all")!.onclick = () => {
     void invoke("stop_flash", { port: null });
-    flashingPorts.clear();
-    busyPortCount = 0;
-    clearAllPortProgress();
-    updateBusyState();
-    appendMainLog("已发送停止全部指令");
+    for (const port of flashingPorts) {
+      setPortProgress(port, { indeterminate: true, label: "停止中", visible: true });
+    }
+    appendMainLog("已发送停止全部指令，等待端口释放...");
   };
   document.getElementById("btn-clear-log")!.onclick = () => {
     els.mainLog.innerHTML = "";

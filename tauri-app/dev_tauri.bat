@@ -16,8 +16,8 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo 使用 cargo: 
+echo 使用 cargo:
 cargo --version
 echo.
-echo 启动 Tauri 开发模式...
+echo 启动 Tauri 开发模式（Rust 原生 espflash 烧录）...
 call npm run tauri dev

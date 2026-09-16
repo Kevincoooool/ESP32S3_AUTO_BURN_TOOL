@@ -1,5 +1,5 @@
 mod config;
-mod esptool_runner;
+mod flasher;
 mod flash;
 mod serial_monitor;
 
@@ -50,8 +50,8 @@ fn set_config(app: AppHandle, config: AppConfig) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn check_esptool(app: AppHandle) -> Result<String, String> {
-    esptool_runner::flasher_info(&app)
+fn check_esptool() -> String {
+    flasher::flasher_info()
 }
 
 #[derive(Clone, Serialize)]
@@ -143,6 +143,11 @@ fn start_flash(
         return Err("请选择至少一个固件".into());
     }
     let monitor = app.state::<SerialMonitorManager>();
+    for port in &ports {
+        if manager.is_busy(port) {
+            return Err(format!("端口 {port} 正在烧录或停止中，请等待当前任务结束"));
+        }
+    }
     for port in ports {
         let _ = monitor.close(&port);
         manager.start(app.clone(), port, firmwares.clone(), config.clone());
