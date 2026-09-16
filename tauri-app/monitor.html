@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/monitor.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ESP32 串口助手</title>
+    <script type="module" src="/src/monitor.ts" defer></script>
+  </head>
+  <body>
+    <div class="monitor-app">
+      <header class="monitor-toolbar">
+        <div class="toolbar-group">
+          <label>
+            串口
+            <select id="port-select"></select>
+          </label>
+          <button id="btn-refresh" class="btn icon" title="刷新">↻</button>
+        </div>
+        <div class="toolbar-group">
+          <label>波特率<select id="baudrate"></select></label>
+          <label>数据位<select id="data-bits"></select></label>
+          <label>停止位<select id="stop-bits"></select></label>
+          <label>校验<select id="parity"></select></label>
+        </div>
+        <button id="btn-toggle" class="btn open">打开串口</button>
+      </header>
+
+      <section class="receive-panel">
+        <div class="panel-toolbar">
+          <label class="check"><input type="checkbox" id="auto-scroll" checked /><span>自动滚动</span></label>
+          <label class="check"><input type="checkbox" id="timestamp" /><span>时间戳</span></label>
+          <label class="check"><input type="checkbox" id="hex-display" /><span>HEX显示</span></label>
+          <label class="check"><input type="checkbox" id="dtr" /><span>DTR</span></label>
+          <label class="check"><input type="checkbox" id="rts" /><span>RTS</span></label>
+          <label>字体<select id="font-family"><option>Consolas</option><option>MiSans</option><option>Courier New</option></select></label>
+          <label>字号<select id="font-size"><option>11</option><option>12</option><option>13</option><option selected>14</option><option>16</option><option>18</option></select></label>
+          <div class="panel-actions">
+            <button id="btn-save" class="btn ghost">保存</button>
+            <button id="btn-clear-rx" class="btn ghost">清屏</button>
+          </div>
+        </div>
+        <div id="rx-view" class="rx-view"></div>
+      </section>
+
+      <section class="send-panel">
+        <div class="panel-toolbar">
+          <label class="check"><input type="checkbox" id="hex-send" /><span>HEX发送</span></label>
+          <label class="check"><input type="checkbox" id="append-newline" checked /><span>发送新行</span></label>
+          <label>换行符<select id="line-ending"><option value="none">无</option><option value="lf">\n</option><option value="cr">\r</option><option value="crlf" selected>\r\n</option></select></label>
+          <label class="check"><input type="checkbox" id="timed-send" /><span>定时发送</span></label>
+          <input id="timed-interval" type="number" min="100" step="100" value="1000" class="tiny-input" /> ms
+        </div>
+        <div class="send-row">
+          <input id="tx-input" type="text" placeholder="输入命令... (Enter发送, ↑↓ 历史记录)" />
+          <button id="btn-send" class="btn primary">发送</button>
+          <button id="btn-send-file" class="btn accent">发送文件</button>
+          <button id="btn-clear-tx" class="btn ghost">清除</button>
+        </div>
+        <div class="quick-cmds">
+          <span class="quick-label">快捷命令</span>
+          <button class="btn quick" data-reset="1">重启</button>
+          <button class="btn quick" data-cmd="help">帮助</button>
+          <button class="btn quick" data-cmd="version">版本</button>
+          <button class="btn quick" data-cmd="wifi scan">WiFi扫描</button>
+        </div>
+      </section>
+
+      <footer class="monitor-status">
+        <div class="status-left">
+          <span id="status-dot" class="status-dot"></span>
+          <span id="status-text">未连接</span>
+        </div>
+        <div class="status-right">
+          <span>TX: <strong id="tx-count">0</strong></span>
+          <span>RX: <strong id="rx-count">0</strong></span>
+          <span id="clock"></span>
+        </div>
+      </footer>
+    </div>
+  </body>
+</html>

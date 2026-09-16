@@ -11,6 +11,7 @@ import {
   FlashLogEvent,
   FlashRecord,
   FirmwareItem,
+  FlashArgsImport,
   PortsChangedEvent,
 } from "./types";
 
@@ -26,7 +27,135 @@ let activePortLog = "";
 let busyPortCount = 0;
 const portLogs = new Map<string, string[]>();
 const flashingPorts = new Set<string>();
-const savedPortSelections: string[] = Array(SLOT_COUNT).fill("");
+
+interface PortProgressState {
+  percent: number;
+  indeterminate: boolean;
+  label: string;
+  visible: boolean;
+}
+
+const portProgressState = new Map<string, PortProgressState>();
+
+function parseFlashProgress(line: string): number | null {
+  const match = line.match(/(\d+(?:\.\d+)?)\s*%/);
+  if (!match) return null;
+  return Math.min(100, Math.max(0, parseFloat(match[1])));
+}
+
+function parseFlashStage(line: string): string | null {
+  if (/writing at|write_flash|write-flash/i.test(line)) return "写入中";
+  if (/erasing|erase.flash|erase_flash/i.test(line)) return "擦除中";
+  if (/connecting|detecting chip|uploading stub|running stub|changing baud/i.test(line)) return "连接中";
+  if (/hash of data verified|hard resetting|烧录完成|所有固件/i.test(line)) return "完成";
+  return null;
+}
+
+function findPortSlotByPort(port: string): HTMLElement | null {
+  for (const slot of els.portList.querySelectorAll<HTMLElement>(".port-slot")) {
+    const sel = slot.querySelector<HTMLSelectElement>("select[data-port-index]");
+    if (sel?.value === port) return slot;
+  }
+  return null;
+}
+
+function applyPortProgressUi(port: string) {
+  const state = portProgressState.get(port);
+  const slot = findPortSlotByPort(port);
+  if (!slot) return;
+
+  const bar = slot.querySelector<HTMLElement>(".port-progress");
+  const fill = slot.querySelector<HTMLElement>(".port-progress-fill");
+  const text = slot.querySelector<HTMLElement>(".port-progress-text");
+  const stage = slot.querySelector<HTMLElement>(".port-progress-stage");
+  if (!bar || !fill || !text || !stage) return;
+
+  if (!state?.visible) {
+    bar.classList.remove("active", "indeterminate", "done", "failed");
+    fill.style.width = "0%";
+    text.textContent = "";
+    stage.textContent = "";
+    return;
+  }
+
+  bar.classList.add("active");
+  bar.classList.toggle("indeterminate", state.indeterminate);
+  bar.classList.toggle("done", !state.indeterminate && state.percent >= 100);
+  stage.textContent = state.label;
+
+  if (state.indeterminate) {
+    text.textContent = "…";
+    fill.style.width = "35%";
+  } else {
+    fill.style.width = `${state.percent}%`;
+    text.textContent = `${state.percent.toFixed(1)}%`;
+  }
+}
+
+function setPortProgress(
+  port: string,
+  update: Partial<PortProgressState> & { visible?: boolean }
+) {
+  const prev = portProgressState.get(port) ?? {
+    percent: 0,
+    indeterminate: true,
+    label: "准备中",
+    visible: true,
+  };
+  portProgressState.set(port, { ...prev, ...update, visible: update.visible ?? true });
+  applyPortProgressUi(port);
+}
+
+function hidePortProgress(port: string, delayMs = 0) {
+  const hide = () => {
+    portProgressState.delete(port);
+    applyPortProgressUi(port);
+  };
+  if (delayMs > 0) {
+    window.setTimeout(hide, delayMs);
+  } else {
+    hide();
+  }
+}
+
+function syncAllPortProgress() {
+  for (const port of portProgressState.keys()) {
+    applyPortProgressUi(port);
+  }
+}
+
+function handlePortLogProgress(port: string, line: string) {
+  if (!flashingPorts.has(port)) return;
+
+  const stage = parseFlashStage(line);
+  const percent = parseFlashProgress(line);
+
+  if (percent !== null) {
+    setPortProgress(port, {
+      percent,
+      indeterminate: false,
+      label: stage ?? "写入中",
+      visible: true,
+    });
+    return;
+  }
+
+  if (stage) {
+    if (stage === "完成") {
+      setPortProgress(port, { percent: 100, indeterminate: false, label: "完成", visible: true });
+      return;
+    }
+    setPortProgress(port, { indeterminate: true, label: stage, visible: true });
+  }
+}
+
+function clearAllPortProgress() {
+  portProgressState.clear();
+  for (const slot of els.portList.querySelectorAll<HTMLElement>(".port-slot")) {
+    const sel = slot.querySelector<HTMLSelectElement>("select[data-port-index]");
+    if (sel?.value) applyPortProgressUi(sel.value);
+  }
+}
 
 const els = {
   portList: document.getElementById("port-list")!,
@@ -155,15 +284,35 @@ function updatePortRowStates() {
 }
 
 function markPortBusy(ports: string[]) {
-  for (const p of ports) flashingPorts.add(p);
+  for (const p of ports) {
+    flashingPorts.add(p);
+    setPortProgress(p, { percent: 0, indeterminate: true, label: "准备中", visible: true });
+  }
   busyPortCount += ports.length;
   updateBusyState();
 }
 
-function markPortDone(port: string) {
+function markPortDone(port: string, success: boolean, isErase = false) {
   flashingPorts.delete(port);
   busyPortCount = Math.max(0, busyPortCount - 1);
   updateBusyState();
+
+  if (success && !isErase) {
+    setPortProgress(port, { percent: 100, indeterminate: false, label: "完成", visible: true });
+    hidePortProgress(port, 1500);
+  } else if (!success) {
+    const slot = findPortSlotByPort(port);
+    slot?.querySelector(".port-progress")?.classList.add("failed");
+    setPortProgress(port, {
+      percent: portProgressState.get(port)?.percent ?? 0,
+      indeterminate: false,
+      label: "失败",
+      visible: true,
+    });
+    hidePortProgress(port, 2000);
+  } else {
+    hidePortProgress(port);
+  }
 }
 
 function updateStats() {
@@ -183,13 +332,6 @@ function fillSelect(select: HTMLSelectElement, values: string[], selected?: stri
   if (selected !== undefined) {
     select.value = String(selected);
   }
-}
-
-function capturePortSelections() {
-  const selects = els.portList.querySelectorAll<HTMLSelectElement>("select[data-port-index]");
-  selects.forEach((sel, i) => {
-    savedPortSelections[i] = sel.value;
-  });
 }
 
 async function persistConfig() {
@@ -230,9 +372,13 @@ function applyConfigToUi() {
 }
 
 function renderPortRows() {
-  capturePortSelections();
   els.portList.innerHTML = "";
   for (let i = 0; i < SLOT_COUNT; i++) {
+    const portForSlot = availablePorts[i] ?? "";
+
+    const slot = document.createElement("div");
+    slot.className = "port-slot";
+
     const row = document.createElement("div");
     row.className = "slot-row port-row";
 
@@ -253,17 +399,12 @@ function renderPortRows() {
     empty.value = "";
     empty.textContent = "未选择";
     select.appendChild(empty);
-    for (const port of availablePorts) {
+    if (portForSlot) {
       const opt = document.createElement("option");
-      opt.value = port;
-      opt.textContent = port;
+      opt.value = portForSlot;
+      opt.textContent = portForSlot;
       select.appendChild(opt);
-    }
-    const saved = savedPortSelections[i];
-    if (saved && availablePorts.includes(saved)) {
-      select.value = saved;
-    } else if (availablePorts[i]) {
-      select.value = availablePorts[i];
+      select.value = portForSlot;
     }
     select.onchange = () => void persistConfig();
 
@@ -277,10 +418,28 @@ function renderPortRows() {
     eraseBtn.textContent = "擦除";
     eraseBtn.onclick = () => void erasePort(i);
 
-    row.append(enable, label, select, flashBtn, eraseBtn);
-    els.portList.appendChild(row);
+    const monitorBtn = document.createElement("button");
+    monitorBtn.className = "btn ghost small monitor-btn";
+    monitorBtn.textContent = "查看串口";
+    monitorBtn.onclick = () => void openSerialMonitor(i);
+
+    row.append(enable, label, select, flashBtn, eraseBtn, monitorBtn);
+
+    const progress = document.createElement("div");
+    progress.className = "port-progress";
+    progress.innerHTML = `
+      <span class="port-progress-stage"></span>
+      <div class="port-progress-track">
+        <div class="port-progress-fill"></div>
+      </div>
+      <span class="port-progress-text"></span>
+    `;
+
+    slot.append(row, progress);
+    els.portList.appendChild(slot);
   }
   updatePortRowStates();
+  syncAllPortProgress();
 }
 
 function renderFirmwareRows() {
@@ -304,6 +463,7 @@ function renderFirmwareRows() {
     addr.value = config.firmwareAddresses[i] ?? "0x0";
     addr.dataset.fwAddr = "1";
     addr.onchange = () => void persistConfig();
+    addr.oninput = () => void persistConfig();
 
     const fullPath = config.firmwarePaths[i] ?? "";
     const path = document.createElement("input");
@@ -340,13 +500,72 @@ async function browseFirmware(index: number) {
   appendMainLog(`已选择固件 #${index + 1}: ${basename(selected)}`);
 }
 
+async function importFlashArgs() {
+  const selected = await open({
+    multiple: false,
+    filters: [{ name: "IDF flash_args", extensions: ["", "txt"] }],
+    title: "选择 build/flash_args 文件",
+  });
+  if (!selected || typeof selected !== "string") return;
+
+  try {
+    const result = await invoke<FlashArgsImport>("parse_flash_args", {
+      flashArgsPath: selected,
+    });
+    if (result.entries.length > SLOT_COUNT) {
+      appendMainLog(
+        `警告: flash_args 含 ${result.entries.length} 项，仅导入前 ${SLOT_COUNT} 项`
+      );
+    }
+
+    config.firmwarePaths = Array(SLOT_COUNT).fill("");
+    config.firmwareAddresses = Array(SLOT_COUNT).fill("0x0");
+    config.firmwareEnables = Array(SLOT_COUNT).fill(false);
+
+    result.entries.slice(0, SLOT_COUNT).forEach((entry, i) => {
+      config.firmwarePaths[i] = entry.path;
+      config.firmwareAddresses[i] = entry.address;
+      config.firmwareEnables[i] = true;
+    });
+
+    if (result.flashMode && FLASH_MODES.includes(result.flashMode)) {
+      config.flashMode = result.flashMode;
+    }
+    if (result.flashFreq && FLASH_FREQS.includes(result.flashFreq)) {
+      config.flashFreq = result.flashFreq;
+    }
+
+    applyConfigToUi();
+    await persistConfig();
+
+    const names = result.entries
+      .slice(0, SLOT_COUNT)
+      .map((e) => `${e.address} ${basename(e.path)}`)
+      .join(", ");
+    appendMainLog(`已从 IDF 导入 ${Math.min(result.entries.length, SLOT_COUNT)} 项: ${names}`);
+    appendMainLog("提示: ESP-IDF 工程需烧录 bootloader + 分区表 + app，单独烧 0x0 无法启动");
+  } catch (e) {
+    appendMainLog(`导入 flash_args 失败: ${e}`);
+  }
+}
+
+function warnIfIncompleteFlashPlan(firmwares: FirmwareItem[]) {
+  if (firmwares.length === 1 && /^0x0+$/i.test(firmwares[0].address.trim())) {
+    appendMainLog(
+      "警告: 仅烧录单个固件到 0x0，设备可能无法启动。请用「导入 IDF」加载 build/flash_args"
+    );
+  }
+}
+
 function getSelectedPorts(): string[] {
   readConfigFromUi();
   const ports: string[] = [];
+  const seen = new Set<string>();
   const selects = els.portList.querySelectorAll<HTMLSelectElement>("select[data-port-index]");
   const enables = els.portList.querySelectorAll<HTMLInputElement>("input[data-port-enable]");
   selects.forEach((sel, i) => {
-    if (enables[i]?.checked && sel.value) {
+    if (enables[i]?.checked && sel.value && !seen.has(sel.value)) {
+      seen.add(sel.value);
       ports.push(sel.value);
     }
   });
@@ -367,16 +586,17 @@ function getSelectedFirmwares(): FirmwareItem[] {
   return items;
 }
 
-async function refreshPorts() {
-  capturePortSelections();
+async function refreshPorts(log = true) {
   availablePorts = await invoke<string[]>("list_ports");
   renderPortRows();
-  appendMainLog(`刷新串口: ${availablePorts.join(", ") || "无"}`);
+  if (log) {
+    appendMainLog(`刷新串口: ${availablePorts.join(", ") || "无"}`);
+  }
 }
 
 async function startFlash(ports?: string[]) {
   readConfigFromUi();
-  const targetPorts = ports ?? getSelectedPorts();
+  const targetPorts = [...new Set(ports ?? getSelectedPorts())];
   const firmwares = getSelectedFirmwares();
   if (!targetPorts.length) {
     appendMainLog("错误: 请选择并启用至少一个串口");
@@ -386,6 +606,7 @@ async function startFlash(ports?: string[]) {
     appendMainLog("错误: 请选择至少一个固件");
     return;
   }
+  warnIfIncompleteFlashPlan(firmwares);
   markPortBusy(targetPorts);
   appendMainLog(`开始烧录: ${targetPorts.join(", ")}`);
   await invoke("start_flash", {
@@ -408,6 +629,7 @@ async function flashPort(index: number) {
     appendMainLog("错误: 请选择至少一个固件");
     return;
   }
+  warnIfIncompleteFlashPlan(firmwares);
   markPortBusy([port]);
   appendMainLog(`单独烧录 ${port}...`);
   await invoke("start_flash", {
@@ -426,7 +648,32 @@ async function erasePort(index: number) {
     return;
   }
   appendMainLog(`擦除 ${port}...`);
+  markPortBusy([port]);
+  setPortProgress(port, { indeterminate: true, label: "擦除中", visible: true });
   await invoke("erase_single_port", { port, baudrate: config.baudrate });
+}
+
+const MONITOR_BAUD = 115200;
+
+async function openSerialMonitor(index: number) {
+  readConfigFromUi();
+  const select = els.portList.querySelectorAll<HTMLSelectElement>("select[data-port-index]")[index];
+  const port = select?.value;
+  if (!port) {
+    appendMainLog(`错误: 端口 #${index + 1} 未选择串口`);
+    return;
+  }
+  if (flashingPorts.has(port)) {
+    appendMainLog(`端口 ${port} 正在烧录，请稍后再查看串口`);
+    return;
+  }
+
+  try {
+    await invoke("open_serial_monitor_window", { port, baudrate: MONITOR_BAUD });
+    appendMainLog(`已打开串口监视: ${port}`);
+  } catch (e) {
+    appendMainLog(`打开串口监视失败 (${port}): ${e}`);
+  }
 }
 
 function hideHistoryEmpty() {
@@ -434,9 +681,10 @@ function hideHistoryEmpty() {
 }
 
 function addRecord(event: FlashCompleteEvent) {
-  markPortDone(event.port);
+  const isErase = event.chipType === "Erase";
+  markPortDone(event.port, event.success, isErase);
 
-  if (event.chipType === "Erase") {
+  if (isErase) {
     appendMainLog(event.success ? `${event.port} 擦除完成` : `${event.port} 擦除失败: ${event.errorMsg}`);
     return;
   }
@@ -469,6 +717,9 @@ function addRecord(event: FlashCompleteEvent) {
   appendMainLog(
     `${event.port} · ${record.chipType} · ${record.macAddress} — ${record.success ? "成功" : "失败"}`
   );
+  if (!event.success && event.errorMsg) {
+    appendPortLog(event.port, `错误: ${event.errorMsg}`);
+  }
   if (!event.success) {
     setStatus("存在失败", "error");
   } else if (busyPortCount === 0) {
@@ -541,6 +792,7 @@ async function init() {
 
   await listen<FlashLogEvent>("flash-log", (event) => {
     appendPortLog(event.payload.port, event.payload.line);
+    handlePortLogProgress(event.payload.port, event.payload.line);
     if (/错误|失败|Error/i.test(event.payload.line)) {
       appendMainLog(`[${event.payload.port}] ${event.payload.line}`);
     }
@@ -551,20 +803,25 @@ async function init() {
   });
 
   await listen<PortsChangedEvent>("ports-changed", async (event) => {
+    const prev = availablePorts.join(",");
     const ports = event.payload.ports;
-    await handleAutoFlash(ports);
-    capturePortSelections();
     availablePorts = ports;
     renderPortRows();
+    if (ports.join(",") !== prev) {
+      appendMainLog(`串口变化: ${ports.join(", ") || "无"}`);
+    }
+    await handleAutoFlash(ports);
     knownPorts = new Set(ports);
   });
 
+  document.getElementById("btn-import-flash-args")!.onclick = () => void importFlashArgs();
   document.getElementById("btn-refresh-ports")!.onclick = () => void refreshPorts();
   document.getElementById("btn-start-flash")!.onclick = () => void startFlash();
   document.getElementById("btn-stop-all")!.onclick = () => {
     void invoke("stop_flash", { port: null });
     flashingPorts.clear();
     busyPortCount = 0;
+    clearAllPortProgress();
     updateBusyState();
     appendMainLog("已发送停止全部指令");
   };

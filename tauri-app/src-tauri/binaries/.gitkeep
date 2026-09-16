@@ -1,0 +1,3 @@
+# PyInstaller 生成的 esptool sidecar 放在此目录
+# 文件名格式: esptool-<target-triple>.exe
+# 运行 tauri-app/build_esptool_sidecar.bat 或 npm run build:sidecar 生成

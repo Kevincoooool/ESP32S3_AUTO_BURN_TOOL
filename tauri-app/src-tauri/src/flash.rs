@@ -1,5 +1,5 @@
 use crate::config::AppConfig;
-use crate::esptool::{detect_chip, parse_mac, run_esptool};
+use crate::esptool_runner::{detect_chip_and_mac, erase_flash, serial_post_flash_reset, write_firmwares};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -39,6 +39,10 @@ impl FlashManager {
         Self {
             cancel_flags: Mutex::new(HashMap::new()),
         }
+    }
+
+    pub fn is_busy(&self, port: &str) -> bool {
+        self.cancel_flags.lock().unwrap().contains_key(port)
     }
 
     pub fn stop(&self, port: Option<&str>) {
@@ -92,6 +96,40 @@ fn emit_log(app: &AppHandle, port: &str, line: &str) {
     );
 }
 
+fn cancelled_event(port: &str, chip_type: String, mac_address: String) -> FlashCompleteEvent {
+    FlashCompleteEvent {
+        port: port.to_string(),
+        success: false,
+        chip_type,
+        mac_address,
+        error_msg: "cancelled".into(),
+    }
+}
+
+fn cleanup_port(port: &str, emit: &dyn Fn(&str)) {
+    if let Err(e) = serial_post_flash_reset(port) {
+        emit(&format!("复位警告: {e}"));
+    }
+}
+
+fn fail_with_cleanup(
+    port: &str,
+    chip_type: String,
+    mac_address: String,
+    error_msg: String,
+    emit: &dyn Fn(&str),
+) -> FlashCompleteEvent {
+    emit(&format!("错误: {error_msg}"));
+    cleanup_port(port, emit);
+    FlashCompleteEvent {
+        port: port.to_string(),
+        success: false,
+        chip_type,
+        mac_address,
+        error_msg,
+    }
+}
+
 fn run_flash_job(
     app: &AppHandle,
     port: &str,
@@ -106,120 +144,79 @@ fn run_flash_job(
 
     emit(&format!("开始为端口 {port} 烧录固件..."));
 
-    let baud = config.baudrate.to_string();
-    let read_args = vec![
-        "--port".into(),
-        port.into(),
-        "--baud".into(),
-        baud.clone(),
-        "read-mac".into(),
-    ];
+    if cancel.load(Ordering::Relaxed) {
+        return cancelled_event(port, chip_type, mac_address);
+    }
 
-    emit("检测芯片类型...");
-    match run_esptool(&read_args, cancel.clone(), |line| emit(line)) {
-        Ok(output) => {
-            chip_type = detect_chip(&output).unwrap_or_else(|| "ESP32".to_string());
-            mac_address = parse_mac(&output).unwrap_or_else(|| "Unknown".to_string());
+    emit("Connecting...");
+    match detect_chip_and_mac(app, port, config.baudrate, cancel.clone(), &emit) {
+        Ok((chip, mac)) => {
+            chip_type = chip;
+            mac_address = mac;
             emit(&format!("检测到芯片类型: {chip_type}"));
             if mac_address != "Unknown" {
                 emit(&format!("MAC地址: {mac_address}"));
             }
         }
         Err(e) if e == "cancelled" => {
-            return FlashCompleteEvent {
-                port: port.to_string(),
-                success: false,
-                chip_type,
-                mac_address,
-                error_msg: "cancelled".into(),
-            };
+            return cancelled_event(port, chip_type, mac_address);
         }
         Err(e) => {
-            return FlashCompleteEvent {
-                port: port.to_string(),
-                success: false,
-                chip_type,
-                mac_address,
-                error_msg: e,
-            };
+            return fail_with_cleanup(port, chip_type, mac_address, e, &emit);
         }
     }
 
     if config.erase_flash {
+        if cancel.load(Ordering::Relaxed) {
+            return cancelled_event(port, chip_type, mac_address);
+        }
         emit("正在擦除 Flash...");
-        let erase_args = vec![
-            "--port".into(),
-            port.into(),
-            "--baud".into(),
-            baud.clone(),
-            "erase-flash".into(),
-        ];
-        if let Err(e) = run_esptool(&erase_args, cancel.clone(), |line| emit(line)) {
+        if let Err(e) = erase_flash(app, port, config.baudrate, cancel.clone(), &emit) {
             let msg = if e == "cancelled" {
                 "cancelled".to_string()
             } else {
                 format!("擦除失败: {e}")
             };
-            return FlashCompleteEvent {
-                port: port.to_string(),
-                success: false,
-                chip_type,
-                mac_address,
-                error_msg: msg,
-            };
+            return fail_with_cleanup(port, chip_type, mac_address, msg, &emit);
         }
         emit("Flash 擦除完成!");
     }
 
+    let firmware_items: Vec<(String, String)> = firmwares
+        .iter()
+        .map(|item| (item.path.clone(), item.address.clone()))
+        .collect();
+
+    emit(&format!(
+        "执行命令: esptool write_flash ({} 个文件)",
+        firmware_items.len()
+    ));
+    if let Err(e) = write_firmwares(
+        app,
+        port,
+        config.baudrate,
+        &firmware_items,
+        &config.flash_mode,
+        &config.flash_freq,
+        cancel.clone(),
+        &emit,
+    ) {
+        let msg = if e == "cancelled" {
+            "cancelled".to_string()
+        } else {
+            e
+        };
+        return fail_with_cleanup(port, chip_type, mac_address, msg, &emit);
+    }
+
     for item in firmwares {
-        if cancel.load(Ordering::Relaxed) {
-            return FlashCompleteEvent {
-                port: port.to_string(),
-                success: false,
-                chip_type,
-                mac_address,
-                error_msg: "cancelled".into(),
-            };
-        }
-
-        let mut flash_args = vec![
-            "--port".into(),
-            port.into(),
-            "--baud".into(),
-            baud.clone(),
-            "--before".into(),
-            "default-reset".into(),
-            "--after".into(),
-            "hard-reset".into(),
-        ];
-        if config.flash_mode != "keep" {
-            flash_args.push("--flash-mode".into());
-            flash_args.push(config.flash_mode.clone());
-        }
-        if config.flash_freq != "keep" {
-            flash_args.push("--flash-freq".into());
-            flash_args.push(config.flash_freq.clone());
-        }
-        flash_args.push("write-flash".into());
-        flash_args.push(item.address.clone());
-        flash_args.push(item.path.clone());
-
-        emit(&format!("执行命令: esptool {}", flash_args.join(" ")));
-        if let Err(e) = run_esptool(&flash_args, cancel.clone(), |line| emit(line)) {
-            let msg = if e == "cancelled" {
-                "cancelled".to_string()
-            } else {
-                e
-            };
-            return FlashCompleteEvent {
-                port: port.to_string(),
-                success: false,
-                chip_type,
-                mac_address,
-                error_msg: msg,
-            };
-        }
         emit(&format!("固件 {} 烧录完成!", item.path));
+    }
+
+    if let Err(e) = serial_post_flash_reset(port) {
+        emit(&format!("复位警告: {e}"));
+    } else {
+        emit("hard resetting via RTS/DTR...");
     }
 
     emit(&format!("端口 {port} 所有固件烧录完成!"));
@@ -237,16 +234,32 @@ pub fn erase_port(app: AppHandle, port: String, baudrate: u32) {
         let cancel = Arc::new(AtomicBool::new(false));
         let emit = |line: &str| emit_log(&app, &port, line);
         emit(&format!("开始擦除端口 {port} 的 Flash..."));
-        let args = vec![
-            "--port".into(),
-            port.clone(),
-            "--baud".into(),
-            baudrate.to_string(),
-            "erase-flash".into(),
-        ];
-        let result = run_esptool(&args, cancel, |line| emit(line));
-        let success = result.is_ok();
-        let error_msg = result.err().unwrap_or_default();
+
+        let result = (|| {
+            emit("Connecting...");
+            emit("erase_flash");
+            erase_flash(&app, &port, baudrate, cancel.clone(), &emit)?;
+            serial_post_flash_reset(&port)?;
+            emit("Flash 擦除完成!");
+            Ok::<(), String>(())
+        })();
+
+        if result.is_err() {
+            cleanup_port(&port, &emit);
+        }
+
+        let (success, error_msg) = match result {
+            Ok(()) => (true, String::new()),
+            Err(e) => (
+                false,
+                if e == "cancelled" {
+                    "cancelled".into()
+                } else {
+                    e
+                },
+            ),
+        };
+
         let _ = app.emit(
             "flash-complete",
             FlashCompleteEvent {
@@ -254,13 +267,7 @@ pub fn erase_port(app: AppHandle, port: String, baudrate: u32) {
                 success,
                 chip_type: "Erase".into(),
                 mac_address: "-".into(),
-                error_msg: if success {
-                    String::new()
-                } else if error_msg == "cancelled" {
-                    "cancelled".into()
-                } else {
-                    error_msg
-                },
+                error_msg,
             },
         );
     });

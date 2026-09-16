@@ -3,7 +3,10 @@ dist/
 *.spec
 .history
 *.pyc
-*.json
+config.json
 tauri-app/node_modules/
 tauri-app/dist/
+tauri-app/dist-esptool/
+tauri-app/build-esptool/
+tauri-app/src-tauri/binaries/esptool-*
 tauri-app/src-tauri/target/

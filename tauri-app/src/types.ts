@@ -41,6 +41,36 @@ export interface PortsChangedEvent {
   ports: string[];
 }
 
+export interface SerialOpenParams {
+  port: string;
+  baudrate: number;
+  dataBits: number;
+  stopBits: number;
+  parity: string;
+  dtr: boolean;
+  rts: boolean;
+}
+
+export interface SerialDataEvent {
+  port: string;
+  data: string;
+}
+
+export interface SerialClosedEvent {
+  port: string;
+}
+
+export interface FlashArgsEntry {
+  address: string;
+  path: string;
+}
+
+export interface FlashArgsImport {
+  entries: FlashArgsEntry[];
+  flashMode?: string | null;
+  flashFreq?: string | null;
+}
+
 export const BAUD_RATES = [
   "115200",
   "230400",
